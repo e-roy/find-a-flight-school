@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { UserMenu } from "@/components/auth/UserMenu";
 
 export default function PublicLayout({
   children,
@@ -43,9 +44,7 @@ export default function PublicLayout({
             </div>
           </div>
           <div>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
+            <UserMenu />
           </div>
         </div>
       </nav>

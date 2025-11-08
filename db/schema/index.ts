@@ -8,3 +8,5 @@ export * from "./claims";
 export * from "./signals_mock";
 export * from "./embeddings";
 export * from "./events_financing";
+export * from "./user_profiles";
+export * from "./auth";

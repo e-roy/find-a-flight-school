@@ -1,22 +1,35 @@
-import { NextAuthOptions } from "next-auth";
-import { getServerSession } from "next-auth/next";
+import NextAuth from "next-auth";
+import GoogleProvider from "next-auth/providers/google";
+import { DrizzleAdapter } from "@auth/drizzle-adapter";
+import { db } from "@/lib/db";
+import { users, accounts, sessions, verificationTokens } from "@/db/schema";
 
-// Basic next-auth configuration
-// TODO(question): Which auth provider should we use for MVP? (e.g., credentials, OAuth)
-export const authOptions: NextAuthOptions = {
+// Next-auth v5 configuration with Google OAuth and Drizzle adapter
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  adapter: DrizzleAdapter(db, {
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: sessions,
+    verificationTokensTable: verificationTokens,
+  }),
   providers: [
-    // Add providers here when implementing authentication
-    // For now, this is a placeholder that allows the tRPC context to work
+    GoogleProvider({
+      clientId: process.env.AUTH_GOOGLE_ID!,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
+    }),
   ],
   callbacks: {
-    session: ({ session }) => session,
+    async session({ session, user }) {
+      // Include user ID in session for role lookup
+      // With database adapter, user.id is available directly from the database
+      if (session.user) {
+        session.user.id = user?.id || session.user.id;
+      }
+      return session;
+    },
   },
   pages: {
-    // Customize auth pages if needed
+    signIn: "/sign-in",
   },
-};
-
-export async function auth() {
-  return getServerSession(authOptions);
-}
-
+  secret: process.env.AUTH_SECRET,
+});
