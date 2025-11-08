@@ -3,7 +3,9 @@ import { z } from "zod";
 import { schools } from "@/db/schema/schools";
 import { facts } from "@/db/schema/facts";
 import { signalsMock } from "@/db/schema/signals_mock";
-import { desc } from "drizzle-orm";
+import { leads } from "@/db/schema/leads";
+import { LeadCreateSchema } from "@/lib/validation";
+import { desc, eq } from "drizzle-orm";
 
 export const schoolsRouter = router({
   byId: publicProcedure
@@ -33,13 +35,13 @@ export const schoolsRouter = router({
       // Group facts by key to find the most recent fact per key
       const latestFactsByKey = new Map<string, (typeof allFacts)[0]>();
       const allFactsByKey = new Map<string, (typeof allFacts)[0][]>();
-      
+
       for (const fact of allFacts) {
         // Track latest fact per key (first one encountered is latest due to DESC order)
         if (!latestFactsByKey.has(fact.factKey)) {
           latestFactsByKey.set(fact.factKey, fact);
         }
-        
+
         // Track all facts per key for staleness detection
         const keyFacts = allFactsByKey.get(fact.factKey) || [];
         keyFacts.push(fact);
@@ -53,7 +55,9 @@ export const schoolsRouter = router({
         // Find the most recent fact for this key (first in array since ordered DESC)
         const mostRecentFact = keyFacts[0];
         // Fact is stale if it's not the most recent one for this key
-        const isStale = mostRecentFact ? fact.asOf.getTime() < mostRecentFact.asOf.getTime() : false;
+        const isStale = mostRecentFact
+          ? fact.asOf.getTime() < mostRecentFact.asOf.getTime()
+          : false;
         return {
           ...fact,
           isStale,
@@ -124,4 +128,33 @@ export const schoolsRouter = router({
         return allSchools.slice(offset, offset + limit);
       }
     }),
+  lead: {
+    create: publicProcedure
+      .input(LeadCreateSchema)
+      .mutation(async ({ ctx, input }) => {
+        // Verify school exists
+        const school = await ctx.db.query.schools.findFirst({
+          where: (q, { eq }) => eq(q.id, input.schoolId),
+        });
+
+        if (!school) {
+          throw new Error("School not found");
+        }
+
+        // Insert lead into database
+        const leadId = crypto.randomUUID();
+        await ctx.db.insert(leads).values({
+          id: leadId,
+          schoolId: input.schoolId,
+          userId: ctx.session?.user?.id || null,
+          payloadJson: {
+            email: input.email,
+            message: input.message,
+          },
+          createdAt: new Date(),
+        });
+
+        return { success: true, id: leadId };
+      }),
+  },
 });

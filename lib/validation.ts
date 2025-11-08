@@ -146,3 +146,12 @@ export const FinancingIntentSchema = z.object({
 });
 
 export type FinancingIntent = z.infer<typeof FinancingIntentSchema>;
+
+// Lead creation schema
+export const LeadCreateSchema = z.object({
+  schoolId: z.string().uuid("Invalid school ID"),
+  email: z.string().email("Invalid email address"),
+  message: z.string().min(10, "Message must be at least 10 characters"),
+});
+
+export type LeadCreate = z.infer<typeof LeadCreateSchema>;

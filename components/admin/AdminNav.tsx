@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 
 export function AdminNav() {
   const pathname = usePathname();
-  
+
   const tabs = [
+    { name: "Overview", href: "/admin/overview" },
     { name: "Seeds", href: "/admin/seeds" },
     { name: "Dedupe", href: "/admin/dedupe" },
     { name: "Queue", href: "/admin/queue" },
@@ -21,7 +22,11 @@ export function AdminNav() {
     <nav className="border-b">
       <div className="flex gap-1">
         {tabs.map((tab) => {
-          const isActive = pathname === tab.href || pathname?.startsWith(tab.href + "/");
+          const isActive =
+            pathname === tab.href ||
+            (tab.href === "/admin/overview" && pathname === "/admin") ||
+            (tab.href !== "/admin/overview" &&
+              pathname?.startsWith(tab.href + "/"));
           return (
             <Link
               key={tab.href}
@@ -42,4 +47,3 @@ export function AdminNav() {
     </nav>
   );
 }
-

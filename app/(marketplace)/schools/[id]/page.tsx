@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { EvidencePanel } from "@/components/schools/EvidencePanel";
 import { TierBadge } from "@/components/schools/TierBadge";
+import { ContactForm } from "@/components/schools/ContactForm";
+import { SaveButton } from "@/components/marketplace/SaveButton";
 import { formatAsOfDate, formatFactValue } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -35,6 +37,23 @@ export default function SchoolPage() {
   const { data, isLoading, error } = trpc.schools.byIdWithFacts.useQuery({
     id,
   });
+
+  // Track profile view on mount
+  useEffect(() => {
+    if (id) {
+      // Log view event (fire and forget)
+      fetch("/api/events/view", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ schoolId: id }),
+      }).catch((err) => {
+        // Silently fail - view tracking should not block the page
+        console.error("Failed to track view:", err);
+      });
+    }
+  }, [id]);
 
   const handleFinancingIntent = async () => {
     setIsSubmitting(true);
@@ -122,6 +141,7 @@ export default function SchoolPage() {
                 </a>
               </div>
             )}
+            <SaveButton schoolId={school.id} />
             <Button
               onClick={() => setIsModalOpen(true)}
               variant="default"
@@ -176,6 +196,9 @@ export default function SchoolPage() {
 
         {/* Evidence Panel */}
         <EvidencePanel facts={facts} />
+
+        {/* Contact Form */}
+        <ContactForm schoolId={school.id} />
       </div>
 
       {/* Financing Intent Modal */}
@@ -222,4 +245,3 @@ export default function SchoolPage() {
     </div>
   );
 }
-

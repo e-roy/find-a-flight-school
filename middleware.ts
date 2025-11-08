@@ -6,6 +6,11 @@ import { hasRole } from "@/lib/rbac";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Redirect /admin to /admin/overview
+  if (pathname === "/admin") {
+    return NextResponse.redirect(new URL("/admin/overview", request.url));
+  }
+
   // Check if path requires authentication
   const isPortalRoute = pathname.startsWith("/portal");
   const isAdminRoute = pathname.startsWith("/admin");
@@ -43,5 +48,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/portal/:path*", "/admin/:path*"],
+  matcher: ["/portal/:path*", "/admin/:path*", "/admin"],
 };

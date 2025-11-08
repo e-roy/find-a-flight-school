@@ -13,6 +13,7 @@ import { FACT_KEYS, PROGRAM_TYPES, COST_BANDS } from "@/types";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
+import { logEvent } from "@/lib/events";
 
 interface MatchResult {
   school_id: string;
@@ -382,6 +383,11 @@ export async function POST(req: Request) {
         school_id: scored.schoolId,
         score: scored.score,
         reasons,
+      });
+
+      // Log match appearance event (non-blocking)
+      logEvent("match_appearance", scored.schoolId).catch((err) => {
+        console.error("Failed to log match appearance:", err);
       });
     }
 
