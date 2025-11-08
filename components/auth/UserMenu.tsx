@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { auth, signOut } from "@/lib/auth";
 import { SignInButton } from "./SignInButton";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,13 @@ export async function UserMenu() {
     return <SignInButton />;
   }
 
-  const userInitials = session.user.name
-    ?.split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2) || "U";
+  const userInitials =
+    session.user.name
+      ?.split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "U";
 
   return (
     <DropdownMenu>
@@ -54,11 +55,19 @@ export async function UserMenu() {
           <Link href="/compare">Compare</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/sign-out">Sign Out</Link>
-        </DropdownMenuItem>
+        <form
+          action={async () => {
+            "use server";
+            await signOut({ redirectTo: "/" });
+          }}
+        >
+          <DropdownMenuItem asChild>
+            <button type="submit" className="w-full text-left">
+              Sign Out
+            </button>
+          </DropdownMenuItem>
+        </form>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
-

@@ -1,5 +1,6 @@
 import {
   pgTable,
+  pgEnum,
   text,
   timestamp,
   integer,
@@ -7,20 +8,30 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 
+// User role enum for RBAC
+export const userRoleEnum = pgEnum("user_role", ["user", "school", "admin"]);
+
 // Next-auth required tables for DrizzleAdapter (prefixed with auth_)
-export const users = pgTable("auth_users", {
-  id: text("id").primaryKey(),
-  name: text("name"),
-  email: text("email").notNull().unique(),
-  emailVerified: timestamp("email_verified", { withTimezone: true }),
-  image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const users = pgTable(
+  "auth_users",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    email: text("email").notNull().unique(),
+    emailVerified: timestamp("email_verified", { withTimezone: true }),
+    image: text("image"),
+    role: userRoleEnum("role").notNull().default("user"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    roleIdx: index("auth_users_role_idx").on(table.role),
+  })
+);
 
 export const accounts = pgTable(
   "auth_accounts",

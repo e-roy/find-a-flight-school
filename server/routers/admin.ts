@@ -11,13 +11,14 @@ import { snapshotsRouter } from "./snapshots";
 
 /**
  * Middleware to check if user has admin role
+ * hasRole is now synchronous (reads from session)
  */
-const isAdmin = protectedProcedure.use(async ({ ctx, next }) => {
+const isAdmin = protectedProcedure.use(({ ctx, next }) => {
   if (!ctx.session) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
 
-  const userIsAdmin = await hasRole(ctx.session, "admin");
+  const userIsAdmin = hasRole(ctx.session, "admin");
   if (!userIsAdmin) {
     throw new TRPCError({
       code: "FORBIDDEN",

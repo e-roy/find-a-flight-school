@@ -79,21 +79,11 @@ A marketplace where students can **search, compare, and contact** flight schools
 │   ├── (marketplace)/
 │   │   └── schools/[id]/page.tsx             # School profile
 │   ├── (auth)/
-│   │   ├── sign-in/page.tsx
-│   │   └── sign-out/page.tsx
-│   ├── (claim)/
-│   │   ├── claim/page.tsx
-│   │   ├── claim/verify/page.tsx
-│   │   └── claim/edit/page.tsx
-│   ├── (portal)/                             # ROLE: school
-│   │   ├── layout.tsx                        # portal nav + guard
-│   │   ├── page.tsx                          # overview
-│   │   ├── profile/page.tsx
-│   │   ├── leads/page.tsx
-│   │   └── analytics/page.tsx
-│   ├── (admin)/                              # ROLE: admin
+│   │   └── sign-in/page.tsx
+│   ├── admin/                                # ROLE: admin
 │   │   ├── layout.tsx                        # admin nav + guard
-│   │   ├── page.tsx                          # overview
+│   │   ├── page.tsx                          # redirects to /admin/overview
+│   │   ├── overview/page.tsx                 # overview dashboard
 │   │   ├── seeds/page.tsx
 │   │   ├── dedupe/page.tsx
 │   │   ├── queue/page.tsx
@@ -101,6 +91,18 @@ A marketplace where students can **search, compare, and contact** flight schools
 │   │   ├── facts/page.tsx
 │   │   ├── signals/page.tsx
 │   │   └── match-tester/page.tsx
+│   ├── portal/                               # ROLE: school
+│   │   ├── layout.tsx                        # portal nav + guard
+│   │   ├── page.tsx                          # overview
+│   │   ├── profile/page.tsx
+│   │   ├── leads/page.tsx
+│   │   └── analytics/page.tsx
+│   ├── claim/
+│   │   ├── page.tsx
+│   │   ├── verify/page.tsx
+│   │   └── edit/page.tsx
+│   ├── 403/
+│   │   └── page.tsx                          # Forbidden page
 │   ├── api/
 │   │   ├── health/db/route.ts
 │   │   ├── crawl/enqueue/route.ts
@@ -198,7 +200,7 @@ A marketplace where students can **search, compare, and contact** flight schools
 └── .env.example
 ```
 
-> **Why groups?** Route groups `(public)`, `(marketplace)`, `(portal)`, `(admin)` give you **distinct layouts**, nav, and guards, while keeping URLs clean.
+> **Route groups vs folders:** Route groups like `(public)`, `(marketplace)`, and `(auth)` organize routes with shared layouts **without adding URL segments**. Regular folders like `admin/`, `portal/`, and `claim/` create actual URL paths (`/admin`, `/portal`, `/claim`). Both approaches use layouts with server-side RBAC guards for protection.
 
 ---
 
@@ -237,13 +239,18 @@ All **mutations** must check session **and role**.
 
 ## Middleware & RBAC
 
-- Add `middleware.ts` with a matcher that routes `/admin/:path*` and `/portal/:path*` through a session/role check:
+- Root-level `middleware.ts` matches `/admin/:path*` and `/portal/:path*` and checks session/role:
 
-  - If not authed → redirect to `/sign-in`.
-  - If authed but wrong role → 403 page.
+  - If not authed → redirect to `/sign-in` with callback URL
+  - If authed but wrong role → redirect to `/403`
+  - Uses try-catch around `auth()` for proper error handling
 
-- Provide `hasRole(session, role)` in `lib/rbac.ts`.
-- Layouts for `(admin)` and `(portal)` call a tiny server action to fetch session+role and guard on the server.
+- `lib/rbac.ts` provides `hasRole(session, role)` for role checks.
+
+- **Defense-in-depth:** Layouts for `admin/` and `portal/` are async server components that:
+  - Call `auth()` to fetch session
+  - Use `hasRole(session, 'admin'|'school')` to verify role
+  - Redirect unauthorized users (duplicates middleware protection)
 
 ---
 

@@ -28,7 +28,12 @@ export default function SavedPage() {
 
   // Redirect to sign-in if not authenticated
   useEffect(() => {
-    if (savedError && savedError.message.includes("Unauthorized")) {
+    if (
+      savedError &&
+      (savedError.data?.code === "UNAUTHORIZED" ||
+        savedError.message?.includes("UNAUTHORIZED") ||
+        savedError.message?.includes("Unauthorized"))
+    ) {
       const signInUrl = `/sign-in?callbackUrl=${encodeURIComponent("/saved")}`;
       router.push(signInUrl);
     }
@@ -61,7 +66,12 @@ export default function SavedPage() {
     );
   }
 
-  if (savedError) {
+  if (
+    savedError &&
+    (savedError.data?.code === "UNAUTHORIZED" ||
+      savedError.message?.includes("UNAUTHORIZED") ||
+      savedError.message?.includes("Unauthorized"))
+  ) {
     // Error handling - redirect should happen in useEffect
     return (
       <div className="container mx-auto py-12 px-4 max-w-6xl">

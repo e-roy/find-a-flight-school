@@ -1,10 +1,24 @@
+import { redirect } from "next/navigation";
 import { PortalNav } from "@/components/portal/PortalNav";
+import { auth } from "@/lib/auth";
+import { hasRole } from "@/lib/rbac";
 
-export default function PortalLayout({
+export default async function PortalLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Server-side RBAC guard (defense-in-depth beyond middleware)
+  const session = await auth();
+
+  if (!session?.user) {
+    redirect("/sign-in");
+  }
+
+  if (!hasRole(session, "school")) {
+    redirect("/403");
+  }
+
   return (
     <div className="container mx-auto py-8 px-4 max-w-7xl">
       <div className="mb-6">

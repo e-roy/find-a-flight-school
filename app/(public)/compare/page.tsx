@@ -28,7 +28,12 @@ export default function ComparePage() {
 
   // Redirect to sign-in if not authenticated
   useEffect(() => {
-    if (comparisonError && comparisonError.message.includes("Unauthorized")) {
+    if (
+      comparisonError &&
+      (comparisonError.data?.code === "UNAUTHORIZED" ||
+        comparisonError.message?.includes("UNAUTHORIZED") ||
+        comparisonError.message?.includes("Unauthorized"))
+    ) {
       const signInUrl = `/sign-in?callbackUrl=${encodeURIComponent(
         "/compare"
       )}`;
@@ -67,7 +72,12 @@ export default function ComparePage() {
     );
   }
 
-  if (comparisonError) {
+  if (
+    comparisonError &&
+    (comparisonError.data?.code === "UNAUTHORIZED" ||
+      comparisonError.message?.includes("UNAUTHORIZED") ||
+      comparisonError.message?.includes("Unauthorized"))
+  ) {
     // Error handling - redirect should happen in useEffect
     return (
       <div className="container mx-auto py-12 px-4 max-w-6xl">

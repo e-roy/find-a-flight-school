@@ -1,77 +1,35 @@
 import type { Session } from "next-auth";
-import { db } from "@/lib/db";
-import { userProfiles } from "@/db/schema";
-import { eq } from "drizzle-orm";
-
-export type UserRole = "user" | "school" | "admin";
+import type { UserRole } from "@/types/next-auth";
 
 /**
  * Check if the user in the session has the required role.
  * Returns false if session is null or user doesn't have the role.
+ * Role is now read directly from the session (populated from auth_users table).
  */
-export async function hasRole(
+export function hasRole(
   session: Session | null,
   requiredRole: UserRole
-): Promise<boolean> {
+): boolean {
   if (!session?.user?.id) {
     return false;
   }
 
-  try {
-    const profile = await db
-      .select({ role: userProfiles.role })
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, session.user.id))
-      .limit(1);
-
-    if (profile.length === 0) {
-      // User profile doesn't exist, default to 'user' role
-      // Create profile with default role
-      await db.insert(userProfiles).values({
-        userId: session.user.id,
-        role: "user",
-      });
-      return requiredRole === "user";
-    }
-
-    const userRole = profile[0]?.role;
-    if (!userRole) {
-      return false;
-    }
-
-    // Check exact role match
-    return userRole === requiredRole;
-  } catch (error) {
-    console.error("Error checking user role:", error);
-    return false;
-  }
+  // Role is now included in session from auth callback
+  const userRole = session.user.role || "user";
+  
+  // Check exact role match
+  return userRole === requiredRole;
 }
 
 /**
- * Get the user's role from the database.
- * Returns null if session is invalid or profile doesn't exist.
+ * Get the user's role from the session.
+ * Returns null if session is invalid, otherwise returns the role (defaults to "user").
  */
-export async function getUserRole(
-  session: Session | null
-): Promise<UserRole | null> {
+export function getUserRole(session: Session | null): UserRole | null {
   if (!session?.user?.id) {
     return null;
   }
 
-  try {
-    const profile = await db
-      .select({ role: userProfiles.role })
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, session.user.id))
-      .limit(1);
-
-    if (profile.length === 0) {
-      return null;
-    }
-
-    return (profile[0]?.role as UserRole) || null;
-  } catch (error) {
-    console.error("Error getting user role:", error);
-    return null;
-  }
+  // Role is now included in session from auth callback
+  return (session.user.role as UserRole) || "user";
 }

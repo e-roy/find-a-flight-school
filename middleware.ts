@@ -19,8 +19,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Get session (next-auth v5 requires passing request)
-  const session = await auth();
+  // Get session with error handling
+  let session;
+  try {
+    session = await auth();
+  } catch (error) {
+    console.error("Middleware auth error:", error);
+    // If auth fails, redirect to sign-in
+    const signInUrl = new URL("/sign-in", request.url);
+    signInUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(signInUrl);
+  }
 
   // If not authenticated, redirect to sign-in
   if (!session?.user) {
@@ -29,16 +38,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  // Check role requirements
+  // Check role requirements (hasRole is now synchronous)
   if (isAdminRoute) {
-    const isAdmin = await hasRole(session, "admin");
+    const isAdmin = hasRole(session, "admin");
     if (!isAdmin) {
       return NextResponse.redirect(new URL("/403", request.url));
     }
   }
 
   if (isPortalRoute) {
-    const isSchool = await hasRole(session, "school");
+    const isSchool = hasRole(session, "school");
     if (!isSchool) {
       return NextResponse.redirect(new URL("/403", request.url));
     }
