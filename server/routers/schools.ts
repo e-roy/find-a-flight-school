@@ -30,23 +30,53 @@ export const schoolsRouter = router({
         orderBy: (facts, { desc }) => [desc(facts.asOf)],
       });
 
-      // Group by fact_key and keep only the latest (first) fact per key
+      // Group facts by key to find the most recent fact per key
       const latestFactsByKey = new Map<string, (typeof allFacts)[0]>();
+      const allFactsByKey = new Map<string, (typeof allFacts)[0][]>();
+      
       for (const fact of allFacts) {
+        // Track latest fact per key (first one encountered is latest due to DESC order)
         if (!latestFactsByKey.has(fact.factKey)) {
           latestFactsByKey.set(fact.factKey, fact);
         }
+        
+        // Track all facts per key for staleness detection
+        const keyFacts = allFactsByKey.get(fact.factKey) || [];
+        keyFacts.push(fact);
+        allFactsByKey.set(fact.factKey, keyFacts);
       }
 
+      // Return all facts (not just latest per key) so we can mark old ones as stale
+      // Add isStale flag to each fact (true if a newer fact exists for the same key)
+      const factsWithStaleFlag = allFacts.map((fact) => {
+        const keyFacts = allFactsByKey.get(fact.factKey) || [];
+        // Find the most recent fact for this key (first in array since ordered DESC)
+        const mostRecentFact = keyFacts[0];
+        // Fact is stale if it's not the most recent one for this key
+        const isStale = mostRecentFact ? fact.asOf.getTime() < mostRecentFact.asOf.getTime() : false;
+        return {
+          ...fact,
+          isStale,
+        };
+      });
+
+      // Get latest facts for calculating oldestAsOf and recentlyUpdated
       const latestFacts = Array.from(latestFactsByKey.values());
 
-      // Calculate oldest asOf date
+      // Calculate oldest asOf date from latest facts per key
       const oldestAsOf =
         latestFacts.length > 0
           ? latestFacts.reduce((oldest, fact) => {
               return fact.asOf < oldest ? fact.asOf : oldest;
             }, latestFacts[0]!.asOf)
           : null;
+
+      // Check if recently updated (any latest fact updated in last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const recentlyUpdated =
+        latestFacts.length > 0 &&
+        latestFacts.some((fact) => fact.asOf >= thirtyDaysAgo);
 
       // Get signals_mock data for this school
       const signals = await ctx.db.query.signalsMock.findFirst({
@@ -55,8 +85,9 @@ export const schoolsRouter = router({
 
       return {
         school,
-        facts: latestFacts,
+        facts: factsWithStaleFlag,
         oldestAsOf,
+        recentlyUpdated,
         signals: signals || null,
       };
     }),

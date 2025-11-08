@@ -5,6 +5,7 @@ import { snapshots } from "@/db/schema/snapshots";
 import { facts } from "@/db/schema/facts";
 import { NormalizeRunQuerySchema } from "@/lib/validation";
 import { normalizeSnapshot } from "@/lib/normalize";
+import { detectSnapshotChanges } from "@/lib/refresh";
 import { sql } from "drizzle-orm";
 
 export async function POST(req: Request) {
@@ -57,7 +58,11 @@ export async function POST(req: Request) {
       processed: 0,
       inserted: 0,
       errors: [] as Array<{ snapshotId: string; error: string }>,
+      changedKeys: [] as Array<{ schoolId: string; changedKeys: string[] }>,
     };
+
+    // Track which schools were processed for diff detection
+    const processedSchoolIds = new Set<string>();
 
     // Process each snapshot
     for (const snapshot of unnormalizedSnapshots) {
@@ -95,12 +100,29 @@ export async function POST(req: Request) {
         await db.insert(facts).values(factsToInsert);
 
         results.inserted += factsToInsert.length;
+        processedSchoolIds.add(snapshot.schoolId);
       } catch (error) {
         results.errors.push({
           snapshotId: snapshot.id,
           error:
             error instanceof Error ? error.message : "Unknown error occurred",
         });
+      }
+    }
+
+    // Detect changes for processed schools (after all facts are inserted)
+    for (const schoolId of processedSchoolIds) {
+      try {
+        const changedKeys = await detectSnapshotChanges(schoolId);
+        if (changedKeys.length > 0) {
+          results.changedKeys.push({
+            schoolId,
+            changedKeys,
+          });
+        }
+      } catch (error) {
+        // Log but don't fail the entire operation
+        console.error(`Error detecting changes for school ${schoolId}:`, error);
       }
     }
 

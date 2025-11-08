@@ -28,6 +28,10 @@ export const NormalizeRunQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const RefreshRunQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 // Claim schemas
 export const ClaimRequestSchema = z.object({
   schoolId: z.string().min(1, "schoolId is required"),
@@ -44,7 +48,14 @@ export type ClaimVerify = z.infer<typeof ClaimVerifySchema>;
 
 // Fact value schema for editing
 const FactValueSchema: z.ZodType<FactValue> = z.union([
-  z.enum([PROGRAM_TYPES.PPL, PROGRAM_TYPES.IR, PROGRAM_TYPES.CPL, PROGRAM_TYPES.CFI, PROGRAM_TYPES.CFII, PROGRAM_TYPES.ME]),
+  z.enum([
+    PROGRAM_TYPES.PPL,
+    PROGRAM_TYPES.IR,
+    PROGRAM_TYPES.CPL,
+    PROGRAM_TYPES.CFI,
+    PROGRAM_TYPES.CFII,
+    PROGRAM_TYPES.ME,
+  ]),
   z.enum([COST_BANDS.LOW, COST_BANDS.MID, COST_BANDS.HIGH]),
   z.string(),
   z.array(z.string()),
@@ -121,8 +132,17 @@ export const MatchRequestSchema = z.object({
       ])
     )
     .optional(),
-  budgetBand: z.enum([COST_BANDS.LOW, COST_BANDS.MID, COST_BANDS.HIGH]).optional(),
+  budgetBand: z
+    .enum([COST_BANDS.LOW, COST_BANDS.MID, COST_BANDS.HIGH])
+    .optional(),
   aircraft: z.array(z.string()).optional(),
 });
 
 export type MatchRequest = z.infer<typeof MatchRequestSchema>;
+
+// Financing intent schema
+export const FinancingIntentSchema = z.object({
+  schoolId: z.string().uuid("Invalid school ID"),
+});
+
+export type FinancingIntent = z.infer<typeof FinancingIntentSchema>;

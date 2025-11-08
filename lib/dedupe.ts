@@ -351,6 +351,86 @@ export async function promoteCandidateToSchool(candidateId: string): Promise<{
 }
 
 /**
+ * Get candidate clusters without promoting
+ * Returns groups of candidates that should be merged
+ */
+export async function getCandidateClusters(): Promise<
+  Array<{
+    clusterId: string;
+    candidates: SeedCandidate[];
+    bestCandidate: SeedCandidate;
+    mergeReason: string;
+  }>
+> {
+  const allCandidates = await db
+    .select()
+    .from(seedCandidates)
+    .orderBy(seedCandidates.createdAt);
+
+  if (allCandidates.length === 0) {
+    return [];
+  }
+
+  const clusters: Array<{
+    clusterId: string;
+    candidates: SeedCandidate[];
+    bestCandidate: SeedCandidate;
+    mergeReason: string;
+  }> = [];
+  const processed = new Set<string>();
+
+  for (const candidate of allCandidates) {
+    if (processed.has(candidate.id)) continue;
+
+    // Find all candidates that should merge with this one
+    const group: SeedCandidate[] = [candidate];
+    processed.add(candidate.id);
+
+    for (const other of allCandidates) {
+      if (processed.has(other.id)) continue;
+      if (shouldMerge(candidate, other)) {
+        group.push(other);
+        processed.add(other.id);
+      }
+    }
+
+    // Only include clusters with multiple candidates
+    if (group.length > 1) {
+      const best = selectBestCandidate(group);
+      
+      // Determine merge reason
+      let mergeReason = "similarity";
+      const phone1 = normalizePhone(candidate.phone);
+      const domain1 = extractDomain(candidate.website);
+      
+      for (const other of group) {
+        if (other.id === candidate.id) continue;
+        const phone2 = normalizePhone(other.phone);
+        const domain2 = extractDomain(other.website);
+        
+        if (phone1 && phone2 && phone1 === phone2) {
+          mergeReason = "phone_match";
+          break;
+        }
+        if (domain1 && domain2 && domain1 === domain2) {
+          mergeReason = "domain_match";
+          break;
+        }
+      }
+
+      clusters.push({
+        clusterId: best.id, // Use best candidate ID as cluster ID
+        candidates: group,
+        bestCandidate: best,
+        mergeReason,
+      });
+    }
+  }
+
+  return clusters;
+}
+
+/**
  * Run deduplication process
  * Groups candidates by merge keys, selects best from each group, and promotes
  */

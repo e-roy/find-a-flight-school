@@ -6,6 +6,7 @@ import { snapshotsRouter } from "./snapshots";
 import { factsRouter } from "./facts";
 import { signalsRouter } from "./signals";
 import { matchRouter } from "./match";
+import { dedupeRouter } from "./dedupe";
 
 export const appRouter = router({
   seeds: seedsRouter,
@@ -15,6 +16,7 @@ export const appRouter = router({
   facts: factsRouter,
   signals: signalsRouter,
   match: matchRouter,
+  dedupe: dedupeRouter,
 });
 
 export type AppRouter = typeof appRouter;

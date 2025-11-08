@@ -18,6 +18,7 @@ type Fact = {
   asOf: Date;
   verifiedBy?: string | null;
   verifiedAt?: Date | null;
+  isStale?: boolean;
 };
 
 interface EvidencePanelProps {
@@ -69,6 +70,7 @@ export function EvidencePanel({ facts }: EvidencePanelProps) {
             // Use the first fact (should be the latest)
             const fact = factList[0]!;
             const isOutdated = isFactOutdated(fact.asOf);
+            const isStale = fact.isStale ?? false;
             const formattedValue = formatFactValue(fact.factValue);
 
             return (
@@ -78,7 +80,12 @@ export function EvidencePanel({ facts }: EvidencePanelProps) {
                     <span className="font-medium">
                       {formatFactKey(factKey)}
                     </span>
-                    {isOutdated && (
+                    {isStale && (
+                      <Badge variant="destructive" className="text-xs">
+                        Stale
+                      </Badge>
+                    )}
+                    {isOutdated && !isStale && (
                       <Badge variant="outline" className="text-xs">
                         May be outdated
                       </Badge>
