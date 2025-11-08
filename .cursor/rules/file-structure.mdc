@@ -1,0 +1,201 @@
+---
+alwaysApply: true
+---
+
+# Flight School Marketplace — Cursor Rules
+
+## Project Goal (MVP)
+
+Ship a searchable/comparable directory of flight schools with a crawl → normalize → evidence pipeline and basic AI match.
+
+---
+
+## Tech Stack (Locked)
+
+- **Framework:** Next.js (App Router) + **TypeScript (strict)**
+- **DB/ORM:** Postgres (Neon/Supabase) + Drizzle ORM + `pgvector`
+- **Crawl/Extract:** Firecrawl API
+- **UI:** Tailwind CSS + shadcn/ui
+- **Validation:** Zod
+- **Auth:** next-auth (Auth.js) + Postgres adapter
+- **LLM (debrief only):** Vercel AI SDK (OpenAI-compatible)
+
+---
+
+## Libraries to Install
+
+- `drizzle-orm drizzle-kit pg`
+- `@neondatabase/serverless` (or `pg`)
+- `zod`
+- `next-auth`
+- `@vercel/ai`
+- `pgvector` (+ `pgvector-drizzle` if used)
+- `tailwindcss postcss autoprefixer` + `class-variance-authority`
+- `lucide-react`
+- Dev: `eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser prettier`
+
+---
+
+## File Structure
+
+```text
+apps/web/
+  app/
+    (public)/
+      page.tsx
+    api/
+      health/route.ts
+      seeds/
+        upload/route.ts
+        resolve/route.ts
+      dedupe/run/route.ts
+      crawl/
+        enqueue/route.ts
+        worker/route.ts
+      normalize/run/route.ts
+      match/route.ts
+      claim/
+        request/route.ts
+        verify/route.ts
+        edit/route.ts
+      financing/intent/route.ts
+    schools/
+      [id]/page.tsx
+    admin/
+      seeds/page.tsx
+      queue/page.tsx
+      snapshots/page.tsx
+      facts/page.tsx
+      signals/page.tsx
+      match-tester/page.tsx
+  components/
+    ui/*                      # shadcn components
+    schools/
+      EvidencePanel.tsx
+      TierBadge.tsx
+  lib/
+    db.ts                     # drizzle client
+    auth.ts                   # next-auth config
+    resolver.ts               # domain resolver
+    dedupe.ts                 # merge/promote logic
+    firecrawl.ts              # extract helper
+    normalize.ts              # raw→facts parser
+    embeddings.ts             # pgvector helpers
+    validation.ts             # shared Zod schemas
+    utils.ts
+  types/
+    index.ts                  # shared types (DB models, Fact keys)
+  db/
+    schema/
+      seeds.ts
+      schools.ts
+      sources.ts
+      snapshots.ts
+      facts.ts
+      crawl_queue.ts
+      embeddings.ts
+      signals_mock.ts
+    migrations/               # drizzle-kit output
+  styles/
+    globals.css
+  env.d.ts
+  .env.example
+```
+
+---
+
+## Implementation Rules (Important)
+
+- Assume **dev server is running**; **do not** add scripts to start it.
+- **No `any`**. Use **strict TypeScript**. Keep files **≤ 350 LoC**.
+- Put **types** in `/types` and **helpers** in `/lib`.
+- **Validate all inputs with Zod** (route handlers & server actions). Return 400 on parse errors.
+- **Auth-guard all mutations** (check next-auth session in API routes/server actions).
+- Prefer **server actions/route handlers** for worker jobs; keep each execution short; use DB tables as queues.
+- **Provenance required:** any user-visible fact must store/show `provenance` and `as_of`.
+- **Append-only facts:** never hard-delete normalized facts; write new rows with newer `as_of`.
+- **DB constraints:** all tables include `created_at`/`updated_at`; manage via migrations.
+- **UI:** use shadcn components; accessible semantics; minimal client components.
+- **Rate limits:** throttle crawl/worker endpoints to avoid API spikes.
+- When unsure, **ask concise clarifying questions in comments** as `// TODO(question): …`.
+- use only pnpm
+
+---
+
+## API Pattern
+
+- **Route shape:** `app/api/<feature>/<action>/route.ts`
+
+```ts
+// app/api/feature/action/route.ts
+import { z } from "zod";
+import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
+
+const Input = z.object({
+  // define and refine all inputs with Zod
+});
+
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const json = await req.json().catch(() => ({}));
+  const data = Input.parse(json); // 400 on failure at edge
+
+  // business logic (extract into /lib/* helpers)
+  // TODO(question): Is soft-fail acceptable if downstream service times out?
+
+  return NextResponse.json({ ok: true });
+}
+```
+
+---
+
+## Database Notes
+
+- Enable **`pgvector`**; add an index for cosine ops on embeddings.
+- Minimal helpful indexes:
+
+  - `snapshots (school_id, as_of DESC)`
+  - `facts (school_id, fact_key)`
+  - Consider unique (nullable) on `schools(domain)`
+
+- Keep **`sources`** for lineage of merges and imports.
+
+---
+
+## Environment Variables (`.env.example`)
+
+```env
+DATABASE_URL=
+FIRECRAWL_API_KEY=
+OPENAI_API_KEY=
+NEXTAUTH_SECRET=
+NEXTAUTH_URL=
+```
+
+---
+
+## Coding Conventions
+
+- Split components/hooks when approaching **300 LoC**.
+- No long-running work in a single request; batch via queue endpoints.
+- Log succinctly; never log secrets or raw tokens.
+
+---
+
+## Security
+
+- **All mutation routes require an authenticated session**.
+- Read routes may be public unless PII is involved.
+- Sanitize outbound links in UI; respect **robots.txt** for crawling operations.
+
+---
+
+## Testing & Acceptance (per phase)
+
+- After each phase, include a short acceptance checklist in the PR description.
+- Use a small CSV seed to validate ingestion and downstream flows before proceeding.
