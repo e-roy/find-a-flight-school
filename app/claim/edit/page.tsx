@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import {
 import { FACT_KEYS, PROGRAM_TYPES, COST_BANDS } from "@/types";
 import { Loader2 } from "lucide-react";
 
-export default function EditPage() {
+function EditPageContent() {
   const searchParams = useSearchParams();
   const schoolId = searchParams.get("schoolId") || "";
 
@@ -349,6 +349,26 @@ export default function EditPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function EditPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="container mx-auto py-8 px-4 max-w-2xl">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <EditPageContent />
+    </Suspense>
   );
 }
 

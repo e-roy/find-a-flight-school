@@ -9,7 +9,11 @@ export const trpc = createTRPCReact<AppRouter>();
 
 export function getTrpcClient() {
   return {
-    links: [httpBatchLink({ url: "/api/trpc" })],
-    transformer: superjson,
+    links: [
+      httpBatchLink({
+        url: "/api/trpc",
+        transformer: superjson,
+      }),
+    ],
   };
 }

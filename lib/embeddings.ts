@@ -142,28 +142,28 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 /**
  * Upsert embedding for a school
+ * Note: Storing as JSON string in text column until pgvector extension is enabled
+ * After migration, this will store as vector type directly
  */
 export async function upsertSchoolEmbedding(
   schoolId: string,
   embedding: number[]
 ): Promise<void> {
-  // Convert number[] to the format expected by customType
-  const embeddingValue: { data: number[]; driverData: string } = {
-    data: embedding,
-    driverData: `[${embedding.join(",")}]`,
-  };
-
+  // Store as JSON string for text column, or as vector format string
+  // Format: [1,2,3] for pgvector
+  const embeddingStr = `[${embedding.join(",")}]`;
+  
   await db
     .insert(schoolEmbeddings)
     .values({
       schoolId,
-      embedding: embeddingValue,
+      embedding: embeddingStr,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
       target: schoolEmbeddings.schoolId,
       set: {
-        embedding: embeddingValue,
+        embedding: embeddingStr,
         updatedAt: new Date(),
       },
     });

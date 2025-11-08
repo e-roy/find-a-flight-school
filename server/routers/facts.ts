@@ -13,9 +13,10 @@ export const factsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       if (input.factKey) {
+        const factKey = input.factKey; // Type narrowing
         return ctx.db.query.facts.findMany({
           where: (q, { eq, and }) =>
-            and(eq(q.schoolId, input.schoolId), eq(q.factKey, input.factKey)),
+            and(eq(q.schoolId, input.schoolId), eq(q.factKey, factKey)),
           orderBy: [desc(facts.asOf)],
         });
       }

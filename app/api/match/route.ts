@@ -4,7 +4,11 @@ import { db } from "@/lib/db";
 import { schools } from "@/db/schema/schools";
 import { facts } from "@/db/schema/facts";
 import { schoolEmbeddings } from "@/db/schema/embeddings";
-import { generateEmbedding, toEmbeddingText, getLatestFactsForSchool } from "@/lib/embeddings";
+import {
+  generateEmbedding,
+  toEmbeddingText,
+  getLatestFactsForSchool,
+} from "@/lib/embeddings";
 import { FACT_KEYS, PROGRAM_TYPES, COST_BANDS } from "@/types";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { openai } from "@ai-sdk/openai";
@@ -56,7 +60,7 @@ async function generateDebrief(
 
   // Build context from facts
   const factContext: string[] = [];
-  
+
   const programFacts = Array.from(latestFacts.values()).filter(
     (f) => f.factKey === FACT_KEYS.PROGRAM_TYPE
   );
@@ -82,7 +86,8 @@ async function generateDebrief(
     }
   }
 
-  const locationFact = latestFacts.get(FACT_KEYS.LOCATION_AIRPORT_CODE) ||
+  const locationFact =
+    latestFacts.get(FACT_KEYS.LOCATION_AIRPORT_CODE) ||
     latestFacts.get(FACT_KEYS.LOCATION_ADDRESS);
   if (locationFact) {
     factContext.push(`Location: ${locationFact.factValue as string}`);
@@ -92,10 +97,16 @@ async function generateDebrief(
 
   // Build prompt
   const preferencesText = [
-    preferences.programs?.length ? `Programs: ${preferences.programs.join(", ")}` : null,
+    preferences.programs?.length
+      ? `Programs: ${preferences.programs.join(", ")}`
+      : null,
     preferences.budgetBand ? `Budget: ${preferences.budgetBand}` : null,
-    preferences.aircraft?.length ? `Preferred aircraft: ${preferences.aircraft.join(", ")}` : null,
-  ].filter(Boolean).join(". ");
+    preferences.aircraft?.length
+      ? `Preferred aircraft: ${preferences.aircraft.join(", ")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(". ");
 
   const prompt = `Explain why this flight school matches the student's preferences. Only cite facts from the provided data. Do not invent information.
 
@@ -112,8 +123,12 @@ Provide exactly 3 concise reasons why this school is a good match. Each reason s
 
     const { text } = await generateText({
       model: openai("gpt-4o-mini"),
-      prompt,
-      maxTokens: 200,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
       temperature: 0.7,
     });
 
@@ -134,7 +149,9 @@ Provide exactly 3 concise reasons why this school is a good match. Each reason s
       .filter((r) => r.length > 0)
       .slice(0, 3);
 
-    return reasons.length > 0 ? reasons : ["This school matches your preferences."];
+    return reasons.length > 0
+      ? reasons
+      : ["This school matches your preferences."];
   } catch (error) {
     console.error("Error generating debrief:", error);
     return ["Debrief generation failed"];
@@ -164,9 +181,8 @@ export async function POST(req: Request) {
       queryParts.push(`Location: ${input.city}`);
     }
 
-    const queryText = queryParts.length > 0
-      ? queryParts.join(". ") + "."
-      : "Flight school";
+    const queryText =
+      queryParts.length > 0 ? queryParts.join(". ") + "." : "Flight school";
 
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(queryText);
@@ -224,7 +240,8 @@ export async function POST(req: Request) {
     }
 
     // Get candidate schools (with embeddings)
-    let candidateSchools: Array<{ id: string; lat?: number; lng?: number }> = [];
+    let candidateSchools: Array<{ id: string; lat?: number; lng?: number }> =
+      [];
 
     if (matchingSchoolIds && matchingSchoolIds.length > 0) {
       // Filter to matching schools, capped at 50
@@ -236,7 +253,12 @@ export async function POST(req: Request) {
       candidateSchools = filtered.map((s) => {
         let lat: number | undefined;
         let lng: number | undefined;
-        if (s.addrStd && typeof s.addrStd === "object" && "lat" in s.addrStd && "lng" in s.addrStd) {
+        if (
+          s.addrStd &&
+          typeof s.addrStd === "object" &&
+          "lat" in s.addrStd &&
+          "lng" in s.addrStd
+        ) {
           lat = typeof s.addrStd.lat === "number" ? s.addrStd.lat : undefined;
           lng = typeof s.addrStd.lng === "number" ? s.addrStd.lng : undefined;
         }
@@ -252,7 +274,12 @@ export async function POST(req: Request) {
       candidateSchools = allSchools.map((s) => {
         let lat: number | undefined;
         let lng: number | undefined;
-        if (s.addrStd && typeof s.addrStd === "object" && "lat" in s.addrStd && "lng" in s.addrStd) {
+        if (
+          s.addrStd &&
+          typeof s.addrStd === "object" &&
+          "lat" in s.addrStd &&
+          "lng" in s.addrStd
+        ) {
           lat = typeof s.addrStd.lat === "number" ? s.addrStd.lat : undefined;
           lng = typeof s.addrStd.lng === "number" ? s.addrStd.lng : undefined;
         }
@@ -290,6 +317,8 @@ export async function POST(req: Request) {
       .from(schoolEmbeddings)
       .where(inArray(schoolEmbeddings.schoolId, candidateIds));
 
+    // Note: embedding is stored as text (JSON string format) until pgvector migration
+
     // Convert query embedding to pgvector format
     const queryEmbeddingStr = `[${queryEmbedding.join(",")}]`;
 
@@ -299,12 +328,15 @@ export async function POST(req: Request) {
     if (embeddings.length > 0) {
       // Calculate cosine similarity for each embedding
       for (const emb of embeddings) {
-        const embeddingData = emb.embedding as { data: number[] };
-        const embeddingStr = `[${embeddingData.data.join(",")}]`;
-        
+        // embedding is stored as text (vector format string like "[1,2,3]")
+        const embeddingStr = emb.embedding as string;
+
         // Use raw SQL for cosine similarity
+        // Cast text to vector for the calculation
         const result = await db.execute(
-          sql`SELECT 1 - (${sql.raw(embeddingStr)}::vector <=> ${sql.raw(queryEmbeddingStr)}::vector) as similarity`
+          sql`SELECT 1 - (${sql.raw(embeddingStr)}::vector <=> ${sql.raw(
+            queryEmbeddingStr
+          )}::vector) as similarity`
         );
 
         const similarity = result.rows[0]?.similarity as number | undefined;
@@ -339,15 +371,11 @@ export async function POST(req: Request) {
       // Generate debrief for top 3 only
       let reasons: string[] = [];
       if (i < 3) {
-        reasons = await generateDebrief(
-          school,
-          latestFacts,
-          {
-            programs: input.programs,
-            budgetBand: input.budgetBand,
-            aircraft: input.aircraft,
-          }
-        );
+        reasons = await generateDebrief(school, latestFacts, {
+          programs: input.programs,
+          budgetBand: input.budgetBand,
+          aircraft: input.aircraft,
+        });
       }
 
       results.push({
@@ -378,4 +406,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

@@ -76,7 +76,7 @@ function rowToObject(
   const obj: Record<string, string> = {};
   Object.entries(headerIndices).forEach(([key, index]) => {
     // Handle rows with fewer columns than headers
-    obj[key] = index < row.length ? (row[index]?.trim() || "") : "";
+    obj[key] = index < row.length ? row[index]?.trim() || "" : "";
   });
   return obj;
 }
@@ -102,7 +102,9 @@ export async function uploadSeeds(formData: FormData): Promise<UploadResult> {
         success: false,
         inserted: 0,
         skipped: 0,
-        errors: [{ row: 0, error: "CSV must have at least a header and one data row" }],
+        errors: [
+          { row: 0, error: "CSV must have at least a header and one data row" },
+        ],
       };
     }
 
@@ -163,7 +165,9 @@ export async function uploadSeeds(formData: FormData): Promise<UploadResult> {
         if (error instanceof z.ZodError) {
           errors.push({
             row: rowIndex,
-            error: error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", "),
+            error: error.issues
+              .map((e) => `${e.path.join(".")}: ${e.message}`)
+              .join(", "),
           });
         } else {
           errors.push({
@@ -193,10 +197,10 @@ export async function uploadSeeds(formData: FormData): Promise<UploadResult> {
       errors: [
         {
           row: 0,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error:
+            error instanceof Error ? error.message : "Unknown error occurred",
         },
       ],
     };
   }
 }
-
