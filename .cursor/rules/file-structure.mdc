@@ -2,168 +2,255 @@
 alwaysApply: true
 ---
 
-# Flight School Marketplace — Cursor Rules
+# Flight School Marketplace — Cursor Rules (Revised)
 
 ## Project Goal (MVP)
 
-Ship a searchable/comparable directory of flight schools with a crawl → normalize → evidence pipeline and basic AI match.
+A marketplace where students can **search, compare, and contact** flight schools; schools can **claim + manage** profiles; admins can **operate the crawl/normalize pipeline** and moderate data.
 
 ---
 
 ## Tech Stack (Locked)
 
 - **Framework:** Next.js (App Router) + **TypeScript (strict)**
+- **API:** tRPC v10 for interactive calls; REST route handlers for workers/cron
 - **DB/ORM:** Postgres (Neon/Supabase) + Drizzle ORM + `pgvector`
 - **Crawl/Extract:** Firecrawl API
-- **UI:** Tailwind CSS + shadcn/ui
 - **Validation:** Zod
 - **Auth:** next-auth (Auth.js) + Postgres adapter
+- **UI:** Tailwind + shadcn/ui
 - **LLM (debrief only):** Vercel AI SDK (OpenAI-compatible)
 
 ---
 
-## Libraries to Install
+## Global Rules
 
-- `drizzle-orm drizzle-kit pg`
-- `@neondatabase/serverless` (or `pg`)
-- `zod`
-- `next-auth`
-- `@vercel/ai`
-- `pgvector` (+ `pgvector-drizzle` if used)
-- `tailwindcss postcss autoprefixer` + `class-variance-authority`
-- `lucide-react`
-- Dev: `eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser prettier`
+- Assume dev server is running; **do not** add scripts to start it.
+- **No `any`**; strict TS; keep files **≤ 350 LoC**.
+- **Types** in `/types`, **helpers** in `/lib`.
+- **All inputs validated with Zod**; mutations **auth-guarded**.
+- **RBAC**: roles = `user | school | admin`; protect `/admin/**` for `admin`, `/portal/**` for `school`.
+- Workers/cron stay as **REST routes**; interactive UI uses **tRPC**.
+- **Append-only facts** with `provenance` + `as_of`; user-visible data must show an as-of or source.
+- Use **pnpm** only.
 
 ---
 
-## File Structure
+## Information Architecture (routes & flow)
+
+### Public / Marketplace
+
+- **/** — Landing (search bar + featured schools)
+- **/search** — Results with filters (URL-synced), list + (optional) map
+- **/schools/[id]** — School profile (facts + Evidence Panel + Tier badge + Contact/Financing CTAs)
+- **/compare** — Compare up to 4 schools (table of key facts)
+- **/saved** — User’s saved schools
+- **/claim** — Start claim flow (also reachable from school profile)
+
+### Auth
+
+- **/sign-in**, **/sign-out**
+
+### Partner (School) Portal
+
+- **/portal** — Overview (status, completeness)
+- **/portal/profile** — Edit profile (proposed facts → moderation)
+- **/portal/leads** — Inbound leads (from contact form)
+- **/portal/analytics** — Views, CTR, match appearances (stub ok)
+
+### Admin (Data Ops + Moderation)
+
+- **/admin** — Overview dashboard
+- **/admin/seeds**, **/admin/dedupe**, **/admin/queue**, **/admin/snapshots**
+- **/admin/facts** (moderation), **/admin/signals**, **/admin/match-tester**
+
+---
+
+## File Structure (route groups + RBAC)
 
 ```text
-apps/web/
-  app/
-    (public)/
-      page.tsx
-    api/
-      health/route.ts
-      seeds/
-        upload/route.ts
-        resolve/route.ts
-      dedupe/run/route.ts
-      crawl/
-        enqueue/route.ts
-        worker/route.ts
-      normalize/run/route.ts
-      match/route.ts
-      claim/
-        request/route.ts
-        verify/route.ts
-        edit/route.ts
-      financing/intent/route.ts
-    schools/
-      [id]/page.tsx
-    admin/
-      seeds/page.tsx
-      queue/page.tsx
-      snapshots/page.tsx
-      facts/page.tsx
-      signals/page.tsx
-      match-tester/page.tsx
-  components/
-    ui/*                      # shadcn components
-    schools/
-      EvidencePanel.tsx
-      TierBadge.tsx
-  lib/
-    db.ts                     # drizzle client
-    auth.ts                   # next-auth config
-    resolver.ts               # domain resolver
-    dedupe.ts                 # merge/promote logic
-    firecrawl.ts              # extract helper
-    normalize.ts              # raw→facts parser
-    embeddings.ts             # pgvector helpers
-    validation.ts             # shared Zod schemas
-    utils.ts
-  types/
-    index.ts                  # shared types (DB models, Fact keys)
-  db/
-    schema/
-      seeds.ts
-      schools.ts
-      sources.ts
-      snapshots.ts
-      facts.ts
-      crawl_queue.ts
-      embeddings.ts
-      signals_mock.ts
-    migrations/               # drizzle-kit output
-  styles/
-    globals.css
-  env.d.ts
-  .env.example
+.
+├── app/
+│   ├── (public)/
+│   │   ├── page.tsx                          # Landing
+│   │   ├── search/page.tsx                   # Results + filters (URL state)
+│   │   ├── saved/page.tsx                    # Saved schools
+│   │   └── compare/page.tsx                  # Compare table
+│   ├── (marketplace)/
+│   │   └── schools/[id]/page.tsx             # School profile
+│   ├── (auth)/
+│   │   ├── sign-in/page.tsx
+│   │   └── sign-out/page.tsx
+│   ├── (claim)/
+│   │   ├── claim/page.tsx
+│   │   ├── claim/verify/page.tsx
+│   │   └── claim/edit/page.tsx
+│   ├── (portal)/                             # ROLE: school
+│   │   ├── layout.tsx                        # portal nav + guard
+│   │   ├── page.tsx                          # overview
+│   │   ├── profile/page.tsx
+│   │   ├── leads/page.tsx
+│   │   └── analytics/page.tsx
+│   ├── (admin)/                              # ROLE: admin
+│   │   ├── layout.tsx                        # admin nav + guard
+│   │   ├── page.tsx                          # overview
+│   │   ├── seeds/page.tsx
+│   │   ├── dedupe/page.tsx
+│   │   ├── queue/page.tsx
+│   │   ├── snapshots/page.tsx
+│   │   ├── facts/page.tsx
+│   │   ├── signals/page.tsx
+│   │   └── match-tester/page.tsx
+│   ├── api/
+│   │   ├── health/db/route.ts
+│   │   ├── crawl/enqueue/route.ts
+│   │   ├── crawl/worker/route.ts
+│   │   ├── normalize/run/route.ts
+│   │   ├── match/route.ts
+│   │   ├── claim/request/route.ts
+│   │   ├── claim/verify/route.ts
+│   │   ├── claim/edit/route.ts
+│   │   ├── embeddings/generate/route.ts
+│   │   ├── refresh/run/route.ts
+│   │   ├── financing/intent/route.ts
+│   │   └── trpc/[trpc]/route.ts              # tRPC handler
+│   ├── layout.tsx
+│   └── globals.css
+├── components/
+│   ├── ui/*                                  # shadcn
+│   ├── marketplace/
+│   │   ├── SearchFilters.tsx
+│   │   ├── ResultsList.tsx
+│   │   ├── CompareTable.tsx
+│   │   └── SaveButton.tsx
+│   ├── schools/
+│   │   ├── EvidencePanel.tsx
+│   │   ├── TierBadge.tsx
+│   │   └── ContactForm.tsx
+│   ├── portal/
+│   │   ├── PortalNav.tsx
+│   │   ├── LeadRow.tsx
+│   │   └── ProfileCompleteness.tsx
+│   └── admin/
+│       ├── AdminNav.tsx
+│       ├── DedupeClusterCard.tsx
+│       ├── FactModerationRow.tsx
+│       ├── QueueRetryButton.tsx
+│       ├── SeedResolverButton.tsx
+│       ├── SignalsEditDialog.tsx
+│       └── SnapshotViewer.tsx
+├── lib/
+│   ├── db.ts
+│   ├── auth.ts                                # next-auth
+│   ├── rbac.ts                                # hasRole(user, 'admin'|'school')
+│   ├── middleware.ts                          # helpers used by layouts
+│   ├── resolver.ts
+│   ├── dedupe.ts
+│   ├── firecrawl.ts
+│   ├── normalize.ts
+│   ├── embeddings.ts
+│   ├── validation.ts
+│   ├── utils.ts
+│   ├── email.ts
+│   ├── signals.ts
+│   ├── refresh.ts
+│   └── trpc/
+│       ├── client.ts
+│       ├── context.ts
+│       ├── provider.tsx
+│       └── trpc.ts
+├── server/
+│   └── routers/
+│       ├── _app.ts
+│       ├── marketplace.ts                     # search/list/compare/saved TRPC
+│       ├── schools.ts                         # read profile, contact lead
+│       ├── portal.ts                          # school-facing mutations/reads
+│       ├── admin.ts                           # admin ops
+│       ├── crawl-queue.ts
+│       ├── snapshots.ts
+│       ├── facts.ts
+│       ├── seeds.ts
+│       └── signals.ts
+├── db/
+│   ├── schema/
+│   │   ├── index.ts
+│   │   ├── seeds.ts
+│   │   ├── schools.ts
+│   │   ├── sources.ts
+│   │   ├── snapshots.ts
+│   │   ├── facts.ts
+│   │   ├── crawl_queue.ts
+│   │   ├── embeddings.ts
+│   │   ├── signals_mock.ts
+│   │   ├── claims.ts
+│   │   ├── events_financing.ts
+│   │   ├── leads.ts                           # NEW: marketplace contact leads
+│   │   ├── saved_schools.ts                   # NEW: user favorites
+│   │   ├── comparisons.ts                     # NEW: compare sets
+│   │   └── user_profiles.ts                   # NEW: role, prefs
+│   └── migrations/
+├── types/
+│   └── index.ts
+├── hooks/
+│   └── use-mobile.ts
+├── middleware.ts                               # Next.js matcher: gate /admin, /portal
+├── next-env.d.ts
+└── .env.example
 ```
+
+> **Why groups?** Route groups `(public)`, `(marketplace)`, `(portal)`, `(admin)` give you **distinct layouts**, nav, and guards, while keeping URLs clean.
 
 ---
 
-## Implementation Rules (Important)
+## New DB tables (minimal marketplace add)
 
-- Assume **dev server is running**; **do not** add scripts to start it.
-- **No `any`**. Use **strict TypeScript**. Keep files **≤ 350 LoC**.
-- Put **types** in `/types` and **helpers** in `/lib`.
-- **Validate all inputs with Zod** (route handlers & server actions). Return 400 on parse errors.
-- **Auth-guard all mutations** (check next-auth session in API routes/server actions).
-- Prefer **server actions/route handlers** for worker jobs; keep each execution short; use DB tables as queues.
-- **Provenance required:** any user-visible fact must store/show `provenance` and `as_of`.
-- **Append-only facts:** never hard-delete normalized facts; write new rows with newer `as_of`.
-- **DB constraints:** all tables include `created_at`/`updated_at`; manage via migrations.
-- **UI:** use shadcn components; accessible semantics; minimal client components.
-- **Rate limits:** throttle crawl/worker endpoints to avoid API spikes.
-- When unsure, **ask concise clarifying questions in comments** as `// TODO(question): …`.
-- use only pnpm
+- `leads`: `id, school_id, user_id?, payload_json, created_at`
+- `saved_schools`: `user_id, school_id, created_at` (PK: user_id+school_id)
+- `comparisons`: `user_id, school_ids text[], created_at`
+- `user_profiles`: `user_id, role enum('user','school','admin'), prefs_json, created_at, updated_at`
+
+_(Keep existing crawl/facts/snapshots untouched.)_
+
+---
+
+## tRPC surface (by domain)
+
+- **marketplace**: `search.query`, `saved.list`, `saved.toggle`, `compare.get`, `compare.set`
+- **schools**: `get.byId`, `lead.create`, `financing.intent`
+- **portal** (ROLE: school): `profile.get`, `profile.proposeFacts`, `leads.list`
+- **admin** (ROLE: admin): `facts.moderate`, `signals.set`, `seeds.list`, `dedupe.run`, `queue.list/retry`, `snapshots.get`
+
+All **mutations** must check session **and role**.
+
+---
+
+## UX Flow Notes
+
+- **Search/Filters:** push filter state to URL (SSR-able for SEO on `/search`).
+- **Compare:** store selections client-side; persist via `comparisons` on sign-in.
+- **Saved:** optimistic toggle via tRPC mutation; hydrate on page load.
+- **Contact (lead):** on `/schools/[id]`, post a Zod-validated form → `leads` row; show school confirmation + (optionally) email both parties.
+- **Portal:** show profile completeness and recent leads; edits write **CLAIM**-provenance facts as `PENDING` for moderation.
+- **Admin:** left-nav for Seeds, Dedupe, Queue, Snapshots, Facts, Signals, Match Tester.
+
+---
+
+## Middleware & RBAC
+
+- Add `middleware.ts` with a matcher that routes `/admin/:path*` and `/portal/:path*` through a session/role check:
+
+  - If not authed → redirect to `/sign-in`.
+  - If authed but wrong role → 403 page.
+
+- Provide `hasRole(session, role)` in `lib/rbac.ts`.
+- Layouts for `(admin)` and `(portal)` call a tiny server action to fetch session+role and guard on the server.
 
 ---
 
 ## API Pattern
 
-- **Route shape:** `app/api/<feature>/<action>/route.ts`
-
-```ts
-// app/api/feature/action/route.ts
-import { z } from "zod";
-import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
-
-const Input = z.object({
-  // define and refine all inputs with Zod
-});
-
-export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const json = await req.json().catch(() => ({}));
-  const data = Input.parse(json); // 400 on failure at edge
-
-  // business logic (extract into /lib/* helpers)
-  // TODO(question): Is soft-fail acceptable if downstream service times out?
-
-  return NextResponse.json({ ok: true });
-}
-```
-
----
-
-## Database Notes
-
-- Enable **`pgvector`**; add an index for cosine ops on embeddings.
-- Minimal helpful indexes:
-
-  - `snapshots (school_id, as_of DESC)`
-  - `facts (school_id, fact_key)`
-  - Consider unique (nullable) on `schools(domain)`
-
-- Keep **`sources`** for lineage of merges and imports.
+- **Workers/cron:** keep REST routes (crawl, normalize, refresh).
+- **Interactive:** use tRPC (see server routers) with Zod on every input.
 
 ---
 
@@ -173,29 +260,18 @@ export async function POST(req: Request) {
 DATABASE_URL=
 FIRECRAWL_API_KEY=
 OPENAI_API_KEY=
+RESEND_API_KEY=
 NEXTAUTH_SECRET=
 NEXTAUTH_URL=
 ```
 
 ---
 
-## Coding Conventions
+## Acceptance (layout refactor)
 
-- Split components/hooks when approaching **300 LoC**.
-- No long-running work in a single request; batch via queue endpoints.
-- Log succinctly; never log secrets or raw tokens.
-
----
-
-## Security
-
-- **All mutation routes require an authenticated session**.
-- Read routes may be public unless PII is involved.
-- Sanitize outbound links in UI; respect **robots.txt** for crawling operations.
-
----
-
-## Testing & Acceptance (per phase)
-
-- After each phase, include a short acceptance checklist in the PR description.
-- Use a small CSV seed to validate ingestion and downstream flows before proceeding.
+- Visiting `/` → search → `/search` result list; clicking a card → `/schools/[id]`.
+- Saving a school adds it to `/saved`.
+- Compare tray adds items and renders `/compare`.
+- Submitting contact on `/schools/[id]` inserts a `leads` row.
+- A claimed school user can access `/portal` and view leads.
+- An admin can access `/admin` tools; non-admin is blocked.
