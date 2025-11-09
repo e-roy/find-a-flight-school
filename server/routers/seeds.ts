@@ -1,15 +1,35 @@
 import { router, protectedProcedure, publicProcedure } from "@/lib/trpc/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { seedCandidates } from "@/db/schema/seeds";
 import { desc, or, ilike, eq } from "drizzle-orm";
 import { resolveDomain } from "@/lib/resolver";
+import { hasRole } from "@/lib/rbac";
+import { search } from "@/lib/discovery/google";
+
+/**
+ * Middleware to check if user has admin role
+ */
+const isAdmin = protectedProcedure.use(({ ctx, next }) => {
+  if (!ctx.session) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  const userIsAdmin = hasRole(ctx.session, "admin");
+  if (!userIsAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin role required",
+    });
+  }
+
+  return next();
+});
 
 export const seedsRouter = router({
   list: publicProcedure
     .input(
-      z
-        .object({ limit: z.number().min(1).max(100).default(50) })
-        .optional()
+      z.object({ limit: z.number().min(1).max(100).default(50) }).optional()
     )
     .query(async ({ ctx, input }) => {
       const limit = input?.limit ?? 50;
@@ -99,7 +119,10 @@ export const seedsRouter = router({
       }
 
       // Only update if new confidence is better or existing is null
-      if (seed.confidence === null || resolveResult.confidence > seed.confidence) {
+      if (
+        seed.confidence === null ||
+        resolveResult.confidence > seed.confidence
+      ) {
         await ctx.db
           .update(seedCandidates)
           .set(updateData)
@@ -121,5 +144,40 @@ export const seedsRouter = router({
         confidence: resolveResult.confidence,
       };
     }),
+  discover: isAdmin
+    .input(
+      z.object({
+        city: z.string().min(1),
+        radiusKm: z.number().min(1).max(500),
+        query: z.string().optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      try {
+        const result = await search({
+          city: input.city,
+          radiusKm: input.radiusKm,
+          query: input.query,
+        });
+        return result;
+      } catch (error) {
+        // Log detailed error information
+        console.error("Discovery error:", {
+          error: error instanceof Error ? error.message : String(error),
+          city: input.city,
+          radiusKm: input.radiusKm,
+          query: input.query,
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        // Return empty results on error rather than throwing
+        // The UI will show the error message from tRPC
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to discover flight schools. Please check your API key and ensure the Geocoding API is enabled.",
+        });
+      }
+    }),
 });
-
