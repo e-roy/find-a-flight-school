@@ -12,9 +12,9 @@ export function AdminNav() {
     { name: "Schools", href: "/admin/schools" },
     { name: "Queue", href: "/admin/queue" },
     { name: "Snapshots", href: "/admin/snapshots" },
-    { name: "Facts", href: "/admin/facts" },
-    { name: "Signals", href: "/admin/signals" },
-    { name: "Match Tester", href: "/admin/match-tester" },
+    // { name: "Facts", href: "/admin/facts" },
+    // { name: "Signals", href: "/admin/signals" },
+    // { name: "Match Tester", href: "/admin/match-tester" },
   ];
 
   return (

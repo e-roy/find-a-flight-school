@@ -10,7 +10,7 @@ export default function PublicLayout({
   return (
     <div className="min-h-screen flex flex-col">
       {/* Top Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <nav className="border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/" className="text-xl font-bold">
@@ -52,4 +52,3 @@ export default function PublicLayout({
     </div>
   );
 }
-

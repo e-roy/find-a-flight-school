@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { hasRole } from "@/lib/rbac";
 
 export async function UserMenu() {
   const session = await auth();
@@ -26,6 +27,8 @@ export async function UserMenu() {
       .join("")
       .toUpperCase()
       .slice(0, 2) || "U";
+
+  const isAdmin = hasRole(session, "admin");
 
   return (
     <DropdownMenu>
@@ -54,6 +57,20 @@ export async function UserMenu() {
         <DropdownMenuItem asChild>
           <Link href="/compare">Compare</Link>
         </DropdownMenuItem>
+        {isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/admin/overview">Admin Console</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/schools">Admin: Schools</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/queue">Admin: Queue</Link>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <form
           action={async () => {
