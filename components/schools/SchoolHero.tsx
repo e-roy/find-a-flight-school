@@ -171,23 +171,12 @@ export function SchoolHero({
           {/* Action Buttons */}
           <div className="flex items-center gap-3 flex-wrap pt-2">
             <SaveButton schoolId={school.id} variant="default" size="default" />
-            {onContactClick && (
-              <Button
-                onClick={onContactClick}
-                variant="default"
-                size="default"
-                className="bg-white text-black hover:bg-white/90"
-              >
-                <Mail className="mr-2 h-4 w-4" />
-                Contact School
-              </Button>
-            )}
+
             {onFinancingClick && (
               <Button
                 onClick={onFinancingClick}
                 variant="outline"
                 size="default"
-                className="bg-white/10 text-white border-white/20 hover:bg-white/20"
               >
                 <DollarSign className="mr-2 h-4 w-4" />
                 Check Financing

@@ -1,4 +1,11 @@
-import { pgTable, text, timestamp, jsonb, real, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  jsonb,
+  real,
+  index,
+} from "drizzle-orm/pg-core";
 import { schools } from "./schools";
 
 export const snapshots = pgTable(
@@ -20,4 +27,3 @@ export const snapshots = pgTable(
     ),
   })
 );
-

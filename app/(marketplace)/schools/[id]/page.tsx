@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EvidencePanel } from "@/components/schools/EvidencePanel";
-import { ContactForm } from "@/components/schools/ContactForm";
 import { SchoolHero } from "@/components/schools/SchoolHero";
 import { ProgramsSection } from "@/components/schools/ProgramsSection";
 import { PricingSection } from "@/components/schools/PricingSection";
@@ -23,11 +22,14 @@ import { LocationSection } from "@/components/schools/LocationSection";
 import { ContactSection } from "@/components/schools/ContactSection";
 import { PhotosGallery } from "@/components/schools/PhotosGallery";
 import { OpeningHoursSection } from "@/components/schools/OpeningHoursSection";
-import { formatAsOfDate } from "@/lib/utils";
+import { ScrapedDataSection } from "@/components/schools/ScrapedDataSection";
+
 import { extractPhotoUrls } from "@/lib/utils-photos";
 import { FACT_KEYS } from "@/types";
 import { notFound } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, GraduationCap, DollarSign, Plane } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 export default function SchoolPage() {
   const params = useParams();
@@ -190,6 +192,34 @@ export default function SchoolPage() {
     };
   }, [data?.facts]);
 
+  // Extract financing info from snapshot
+  const financingInfo = useMemo(() => {
+    if (!data?.latestSnapshot?.rawJson) {
+      return null;
+    }
+    const snapshotData = data.latestSnapshot.rawJson as Record<string, unknown>;
+    // Check both 'financing' and 'financingAvailable' fields
+    const financing =
+      typeof snapshotData.financing === "boolean"
+        ? snapshotData.financing
+        : typeof snapshotData.financingAvailable === "boolean"
+        ? snapshotData.financingAvailable
+        : null;
+
+    return financing === true
+      ? {
+          available: true,
+          url:
+            typeof snapshotData.financingUrl === "string"
+              ? snapshotData.financingUrl
+              : null,
+          types: Array.isArray(snapshotData.financingTypes)
+            ? (snapshotData.financingTypes as string[])
+            : [],
+        }
+      : null;
+  }, [data?.latestSnapshot]);
+
   const handleFinancingIntent = async () => {
     setIsSubmitting(true);
     setSubmitSuccess(false);
@@ -256,12 +286,19 @@ export default function SchoolPage() {
     notFound();
   }
 
-  const { school, facts, oldestAsOf, recentlyUpdated, signals } = data;
+  const {
+    school,
+    facts,
+    oldestAsOf,
+    recentlyUpdated,
+    signals,
+    latestSnapshot,
+  } = data;
 
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
-      <div className="container mx-auto px-4 pt-8 pb-6">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8 pb-8 sm:pb-12">
         <SchoolHero
           school={school}
           facts={{
@@ -281,81 +318,191 @@ export default function SchoolPage() {
                 ?.scrollIntoView({ behavior: "smooth", block: "start" });
             }, 100);
           }}
-          onFinancingClick={() => setIsModalOpen(true)}
+          onFinancingClick={
+            financingInfo?.available ? () => setIsModalOpen(true) : undefined
+          }
         />
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 pb-12">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pb-20">
         <div className="max-w-7xl mx-auto">
-          {/* Data as of notice */}
-          {oldestAsOf && (
-            <div className="mb-6 text-center">
-              <p className="text-muted-foreground text-sm">
-                Data as of {formatAsOfDate(oldestAsOf)}
-              </p>
-            </div>
-          )}
-
           {/* Two-column layout for facts */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-10">
             {/* Left column - Main facts */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Programs */}
-              <ProgramsSection programs={organizedFacts.programs} />
+            <div className="lg:col-span-2">
+              {/* Quick Facts Grid - Show key info at a glance */}
+              {(organizedFacts.programs.length > 0 ||
+                organizedFacts.costBand ||
+                organizedFacts.fleetAircraft?.length) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {organizedFacts.programs.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                          <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                          Programs
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-2">
+                          {organizedFacts.programs
+                            .slice(0, 3)
+                            .map((program) => (
+                              <Badge
+                                key={program}
+                                variant="secondary"
+                                className="text-xs"
+                              >
+                                {program}
+                              </Badge>
+                            ))}
+                          {organizedFacts.programs.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{organizedFacts.programs.length - 3} more
+                            </Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-              {/* Pricing */}
-              <PricingSection
-                costBand={organizedFacts.costBand}
-                costNotes={organizedFacts.costNotes}
-              />
+                  {organizedFacts.costBand && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                          <DollarSign className="h-4 w-4 text-muted-foreground" />
+                          Pricing
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Badge
+                          variant={
+                            organizedFacts.costBand === "LOW"
+                              ? "default"
+                              : organizedFacts.costBand === "MID"
+                              ? "secondary"
+                              : "outline"
+                          }
+                          className="text-sm"
+                        >
+                          {organizedFacts.costBand}
+                        </Badge>
+                        {organizedFacts.costNotes && (
+                          <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
+                            {organizedFacts.costNotes}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
 
-              {/* Fleet */}
-              <FleetSection
-                aircraft={organizedFacts.fleetAircraft}
-                count={organizedFacts.fleetCount}
-              />
-
-              {/* Location */}
-              <LocationSection
-                school={school}
-                airportCode={organizedFacts.airportCode}
-                address={organizedFacts.address}
-              />
-
-              {/* Opening Hours */}
-              {organizedFacts.openingHours && (
-                <OpeningHoursSection
-                  openNow={organizedFacts.openingHours.openNow}
-                  periods={organizedFacts.openingHours.periods}
-                  weekdayText={organizedFacts.openingHours.weekdayText}
-                />
+                  {organizedFacts.fleetAircraft?.length && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                          <Plane className="h-4 w-4 text-muted-foreground" />
+                          Fleet
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-2">
+                          {organizedFacts.fleetAircraft
+                            .slice(0, 2)
+                            .map((aircraft, i) => (
+                              <span key={i} className="text-sm">
+                                {aircraft}
+                              </span>
+                            ))}
+                          {organizedFacts.fleetAircraft.length > 2 && (
+                            <span className="text-sm text-muted-foreground">
+                              +{organizedFacts.fleetAircraft.length - 2} more
+                            </span>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
               )}
 
-              {/* Photos Gallery */}
-              {organizedFacts.photos && organizedFacts.photos.length > 0 && (
-                <PhotosGallery
-                  photos={organizedFacts.photos}
-                  schoolName={school.canonicalName}
-                />
-              )}
+              {/* Detailed Information Sections */}
+              <div className="space-y-8">
+                {/* Programs - Full List */}
+                {organizedFacts.programs.length > 0 && (
+                  <ProgramsSection programs={organizedFacts.programs} />
+                )}
+
+                {/* Pricing - Full Details */}
+                {(organizedFacts.costBand || organizedFacts.costNotes) && (
+                  <PricingSection
+                    costBand={organizedFacts.costBand}
+                    costNotes={organizedFacts.costNotes}
+                  />
+                )}
+
+                {/* Fleet - Full Details */}
+                {(organizedFacts.fleetAircraft?.length ||
+                  organizedFacts.fleetCount) && (
+                  <FleetSection
+                    aircraft={organizedFacts.fleetAircraft}
+                    count={organizedFacts.fleetCount}
+                  />
+                )}
+              </div>
+
+              {/* Location & Hours */}
+              <div className="space-y-8">
+                {(() => {
+                  const hasLocation =
+                    organizedFacts.airportCode ||
+                    organizedFacts.address ||
+                    (school.addrStd && typeof school.addrStd === "object");
+                  return hasLocation ? (
+                    <LocationSection
+                      school={school}
+                      airportCode={organizedFacts.airportCode}
+                      address={organizedFacts.address}
+                    />
+                  ) : null;
+                })()}
+
+                {organizedFacts.openingHours && (
+                  <OpeningHoursSection
+                    openNow={organizedFacts.openingHours.openNow}
+                    periods={organizedFacts.openingHours.periods}
+                    weekdayText={organizedFacts.openingHours.weekdayText}
+                  />
+                )}
+              </div>
+
+              {/* Media & Additional Data */}
+              <div className="space-y-8">
+                {organizedFacts.photos && organizedFacts.photos.length > 0 && (
+                  <PhotosGallery
+                    photos={organizedFacts.photos}
+                    schoolName={school.canonicalName}
+                  />
+                )}
+
+                {latestSnapshot && (
+                  <ScrapedDataSection snapshot={latestSnapshot} />
+                )}
+              </div>
             </div>
 
             {/* Right column - Contact and Evidence */}
-            <div className="space-y-6">
-              {/* Contact Section */}
+            <div className="space-y-8">
               <ContactSection
                 school={school}
                 email={organizedFacts.email}
                 phone={organizedFacts.phone}
               />
 
-              {/* Contact Form */}
-              <div id="contact-form">
+              {/* <div id="contact-form">
                 <ContactForm schoolId={school.id} />
-              </div>
+              </div> */}
 
-              {/* Evidence Panel */}
               <EvidencePanel facts={facts} />
             </div>
           </div>

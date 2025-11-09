@@ -6,6 +6,10 @@ import { processCrawlResult } from "@/lib/firecrawl";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
+// Route config to ensure raw body is available for signature verification
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 /**
  * Verify webhook signature from Firecrawl
  */
@@ -80,12 +84,27 @@ function verifyWebhookSignature(
 
 export async function POST(req: Request) {
   try {
+    // Log request info for debugging (only in production to help diagnose issues)
+    const isProduction = process.env.NODE_ENV === "production";
+    if (isProduction) {
+      const headers: Record<string, string> = {};
+      req.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      console.log("[Webhook] Request headers:", JSON.stringify(headers, null, 2));
+    }
+
     // Read raw body for signature verification
     const rawBody = await req.text();
     const body = JSON.parse(rawBody);
 
-    // Verify webhook signature
-    const signature = req.headers.get("X-Firecrawl-Signature");
+    // Verify webhook signature - check multiple possible header names
+    const signature = 
+      req.headers.get("X-Firecrawl-Signature") ||
+      req.headers.get("x-firecrawl-signature") ||
+      req.headers.get("firecrawl-signature") ||
+      req.headers.get("X-Signature");
+    
     const webhookSecret = process.env.FIRECRAWL_WEBHOOK_SECRET;
 
     // In development, allow bypassing signature verification for testing
@@ -111,6 +130,25 @@ export async function POST(req: Request) {
           "[Webhook] Received signature:",
           signature ? `${signature.substring(0, 20)}...` : "none"
         );
+        console.error(
+          "[Webhook] Raw body length:",
+          rawBody.length
+        );
+        console.error(
+          "[Webhook] Webhook secret configured:",
+          !!webhookSecret
+        );
+        if (isProduction) {
+          console.error(
+            "[Webhook] All signature-related headers:",
+            JSON.stringify({
+              "X-Firecrawl-Signature": req.headers.get("X-Firecrawl-Signature"),
+              "x-firecrawl-signature": req.headers.get("x-firecrawl-signature"),
+              "firecrawl-signature": req.headers.get("firecrawl-signature"),
+              "X-Signature": req.headers.get("X-Signature"),
+            }, null, 2)
+          );
+        }
         console.error(
           "[Webhook] Tip: In development, set SKIP_WEBHOOK_SIGNATURE=true to bypass signature check"
         );
