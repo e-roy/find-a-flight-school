@@ -20,10 +20,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { SeedSearchInput } from "@/components/admin/SeedSearchInput";
 import { SeedResolverButton } from "@/components/admin/SeedResolverButton";
+import { toast } from "sonner";
 import Link from "next/link";
 
 export default function SeedsPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set());
 
   const { data: seeds, isLoading } = trpc.seeds.list.useQuery(
     { limit: 100 },
@@ -34,6 +36,36 @@ export default function SeedsPage() {
     { query: searchQuery },
     { enabled: searchQuery.length > 0 }
   );
+
+  const utils = trpc.useUtils();
+
+  const promoteMutation = trpc.seeds.promoteAndQueue.useMutation({
+    onSuccess: (result) => {
+      toast.success(
+        `Successfully promoted and queued${result.queueId ? " (crawl enqueued)" : ""}`
+      );
+      // Refresh the list
+      utils.seeds.list.invalidate();
+      if (searchQuery) {
+        utils.seeds.search.invalidate();
+      }
+    },
+    onError: (error) => {
+      toast.error(`Failed to promote: ${error.message}`);
+    },
+    onSettled: (_, __, variables) => {
+      setPromotingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(variables.seedId);
+        return next;
+      });
+    },
+  });
+
+  const handlePromote = (seedId: string) => {
+    setPromotingIds((prev) => new Set(prev).add(seedId));
+    promoteMutation.mutate({ seedId });
+  };
 
   const displaySeeds = searchQuery ? searchResults : seeds;
   const isLoadingData = searchQuery ? isSearching : isLoading;
@@ -150,7 +182,21 @@ export default function SeedsPage() {
                           : "-"}
                       </TableCell>
                       <TableCell>
-                        <SeedResolverButton seedId={seed.id} />
+                        <div className="flex gap-2">
+                          <SeedResolverButton seedId={seed.id} />
+                          {seed.website && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              disabled={promotingIds.has(seed.id)}
+                              onClick={() => handlePromote(seed.id)}
+                            >
+                              {promotingIds.has(seed.id)
+                                ? "Promoting..."
+                                : "Promote & Queue"}
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
