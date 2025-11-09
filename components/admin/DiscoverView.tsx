@@ -18,10 +18,9 @@ import { ResultsPanel } from "@/components/admin/ResultsPanel";
 import type { Candidate } from "@/lib/discovery/google";
 
 interface ExistenceStatus {
-  existsInSeeds: boolean;
   existsInSchools: boolean;
   matches: Array<{
-    type: "seed" | "school";
+    type: "school";
     id: string;
     name: string;
     domain?: string;
@@ -40,9 +39,9 @@ export function DiscoverView() {
     Map<string, ExistenceStatus>
   >(new Map());
   const [importingIds, setImportingIds] = useState<Set<string>>(new Set());
-  const [importedSeedIds, setImportedSeedIds] = useState<Map<string, string>>(
-    new Map()
-  ); // candidateId -> seedId
+  const [importedSchoolIds, setImportedSchoolIds] = useState<
+    Map<string, string>
+  >(new Map()); // candidateId -> schoolId
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(
     new Set()
   );
@@ -78,20 +77,23 @@ export function DiscoverView() {
         next.delete(candidateId);
         return next;
       });
-      // Track imported seed ID
-      if (result.seedId) {
-        setImportedSeedIds((prev) => {
+      // Track imported school ID
+      if (result.schoolId) {
+        setImportedSchoolIds((prev) => {
           const next = new Map(prev);
-          next.set(candidateId, result.seedId);
+          next.set(candidateId, result.schoolId);
           return next;
         });
       }
-      toast.success(`Successfully imported ${variables.name}`);
+      toast.success(
+        result.isNew
+          ? `Successfully created school: ${variables.name}`
+          : `Successfully linked to existing school: ${variables.name}`
+      );
       // Refresh existence status for this candidate
       checkExistence(variables);
-      // Invalidate seed list queries
-      utils.seeds.list.invalidate();
-      utils.seeds.search.invalidate();
+      // Invalidate school queries since we're creating schools directly
+      utils.schools.list.invalidate();
     },
     onError: (error, variables) => {
       const candidateId = getCandidateId(variables);
@@ -207,7 +209,7 @@ export function DiscoverView() {
     setSelectedCandidateId(undefined);
     setExistenceStatus(new Map());
     setImportingIds(new Set());
-    setImportedSeedIds(new Map());
+    setImportedSchoolIds(new Map());
     setSelectedCandidateIds(new Set());
   };
 
@@ -230,7 +232,8 @@ export function DiscoverView() {
       .map((candidate) => getCandidateId(candidate))
       .filter((candidateId) => {
         const status = existenceStatus.get(candidateId);
-        return status && !status.existsInSeeds;
+        // Check schools since Google imports create schools directly
+        return status && !status.existsInSchools;
       });
 
     setSelectedCandidateIds((prev) => {
@@ -249,7 +252,8 @@ export function DiscoverView() {
     return data.candidates.filter((candidate) => {
       const candidateId = getCandidateId(candidate);
       const status = existenceStatus.get(candidateId);
-      return status && !status.existsInSeeds;
+      // Check schools since Google imports create schools directly
+      return status && !status.existsInSchools;
     });
   };
 
@@ -269,7 +273,7 @@ export function DiscoverView() {
     // Import candidates sequentially
     for (const candidate of candidatesToImport) {
       const candidateId = getCandidateId(candidate);
-      if (importingIds.has(candidateId) || importedSeedIds.has(candidateId)) {
+      if (importingIds.has(candidateId) || importedSchoolIds.has(candidateId)) {
         continue; // Skip if already importing or imported
       }
       handleImport(candidate);
@@ -289,7 +293,7 @@ export function DiscoverView() {
     // Import all importable candidates sequentially
     for (const candidate of importableCandidates) {
       const candidateId = getCandidateId(candidate);
-      if (importingIds.has(candidateId) || importedSeedIds.has(candidateId)) {
+      if (importingIds.has(candidateId) || importedSchoolIds.has(candidateId)) {
         continue; // Skip if already importing or imported
       }
       handleImport(candidate);
@@ -400,7 +404,7 @@ export function DiscoverView() {
                       return (
                         selectedCandidateIds.has(candidateId) &&
                         !importingIds.has(candidateId) &&
-                        !importedSeedIds.has(candidateId)
+                        !importedSchoolIds.has(candidateId)
                       );
                     })
                   }
@@ -417,7 +421,7 @@ export function DiscoverView() {
                       const candidateId = getCandidateId(candidate);
                       return (
                         importingIds.has(candidateId) ||
-                        importedSeedIds.has(candidateId)
+                        importedSchoolIds.has(candidateId)
                       );
                     })
                   }
@@ -451,7 +455,7 @@ export function DiscoverView() {
                     existenceStatus={existenceStatus}
                     onImport={handleImport}
                     importingIds={importingIds}
-                    importedSeedIds={importedSeedIds}
+                    importedSchoolIds={importedSchoolIds}
                     selectedCandidateIds={selectedCandidateIds}
                     onSelectionChange={handleSelectionChange}
                     onSelectAll={handleSelectAll}

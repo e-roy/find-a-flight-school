@@ -4,8 +4,10 @@ import { schools } from "@/db/schema/schools";
 import { facts } from "@/db/schema/facts";
 import { signalsMock } from "@/db/schema/signals_mock";
 import { leads } from "@/db/schema/leads";
+import { crawlQueue } from "@/db/schema/crawl_queue";
+import { snapshots } from "@/db/schema/snapshots";
 import { LeadCreateSchema } from "@/lib/validation";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql, and, or, ilike, isNotNull } from "drizzle-orm";
 
 export const schoolsRouter = router({
   byId: publicProcedure
@@ -157,4 +159,111 @@ export const schoolsRouter = router({
         return { success: true, id: leadId };
       }),
   },
+  listWithCrawlStatus: publicProcedure
+    .input(
+      z
+        .object({
+          limit: z.number().min(1).max(100).default(50),
+          offset: z.number().min(0).default(0),
+          search: z.string().optional(),
+          crawlStatus: z
+            .enum(["pending", "queued", "processing", "completed", "failed", "never"])
+            .optional(),
+          lastScrapedFilter: z
+            .enum(["last7days", "last30days", "never"])
+            .optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 50;
+      const offset = input?.offset ?? 0;
+      const search = input?.search;
+      const crawlStatusFilter = input?.crawlStatus;
+      const lastScrapedFilter = input?.lastScrapedFilter;
+
+      // Build base query with joins
+      let query = ctx.db
+        .select({
+          id: schools.id,
+          canonicalName: schools.canonicalName,
+          domain: schools.domain,
+          addrStd: schools.addrStd,
+          phone: schools.phone,
+          createdAt: schools.createdAt,
+          updatedAt: schools.updatedAt,
+          crawlStatus: sql<string | null>`(
+            SELECT status 
+            FROM ${crawlQueue} 
+            WHERE ${crawlQueue.schoolId} = ${schools.id} 
+            ORDER BY ${crawlQueue.createdAt} DESC 
+            LIMIT 1
+          )`.as("crawlStatus"),
+          lastScraped: sql<Date | null>`(
+            SELECT as_of 
+            FROM ${snapshots} 
+            WHERE ${snapshots.schoolId} = ${schools.id} 
+            ORDER BY ${snapshots.asOf} DESC 
+            LIMIT 1
+          )`.as("lastScraped"),
+        })
+        .from(schools);
+
+      // Apply search filter
+      if (search) {
+        const searchTerm = `%${search}%`;
+        query = query.where(
+          or(
+            ilike(schools.canonicalName, searchTerm),
+            ilike(schools.domain, searchTerm),
+            ilike(schools.addrStd, searchTerm)
+          )
+        ) as typeof query;
+      }
+
+      // Get all results first (we'll filter in memory for complex filters)
+      const allResults = await query;
+
+      // Apply crawl status filter
+      let filtered = allResults;
+      if (crawlStatusFilter) {
+        if (crawlStatusFilter === "never") {
+          filtered = filtered.filter((r) => !r.crawlStatus);
+        } else {
+          filtered = filtered.filter((r) => r.crawlStatus === crawlStatusFilter);
+        }
+      }
+
+      // Apply last scraped filter
+      if (lastScrapedFilter) {
+        const now = new Date();
+        if (lastScrapedFilter === "last7days") {
+          const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          filtered = filtered.filter(
+            (r) => r.lastScraped && r.lastScraped >= sevenDaysAgo
+          );
+        } else if (lastScrapedFilter === "last30days") {
+          const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          filtered = filtered.filter(
+            (r) => r.lastScraped && r.lastScraped >= thirtyDaysAgo
+          );
+        } else if (lastScrapedFilter === "never") {
+          filtered = filtered.filter((r) => !r.lastScraped);
+        }
+      }
+
+      // Sort by name
+      filtered.sort((a, b) =>
+        a.canonicalName.localeCompare(b.canonicalName)
+      );
+
+      // Apply pagination
+      const paginated = filtered.slice(offset, offset + limit);
+
+      return {
+        schools: paginated,
+        total: filtered.length,
+        hasMore: offset + limit < filtered.length,
+      };
+    }),
 });

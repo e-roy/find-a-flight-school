@@ -1,38 +1,56 @@
 "use client";
 
-import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card } from "@/components/ui/card";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { MapPin, Globe } from "lucide-react";
-import { SaveButton } from "@/components/marketplace/SaveButton";
+import { SchoolCard } from "@/components/marketplace/SchoolCard";
 import type { schools } from "@/db/schema/schools";
 
 type School = typeof schools.$inferSelect;
 
 interface ResultsListProps {
-  schools: School[] | undefined;
+  schools:
+    | (School & {
+        facts?: {
+          programs?: string[];
+          costBand?: string;
+          fleetAircraft?: string[];
+          rating?: number;
+          ratingCount?: number;
+          photos?: string[];
+        };
+      })[]
+    | undefined;
   isLoading: boolean;
 }
 
 export function ResultsList({ schools, isLoading }: ResultsListProps) {
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader>
-              <Skeleton className="h-6 w-64" />
-              <Skeleton className="h-4 w-48 mt-2" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-4 w-32" />
-            </CardContent>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Card key={i} className="h-full flex flex-col">
+            {/* Image skeleton */}
+            <Skeleton className="w-full h-48 rounded-t-lg" />
+            <div className="p-4 space-y-3 flex-1">
+              {/* Title skeleton */}
+              <Skeleton className="h-6 w-3/4" />
+              {/* Badges skeleton */}
+              <div className="flex gap-2">
+                <Skeleton className="h-5 w-16" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+              {/* Rating skeleton */}
+              <Skeleton className="h-4 w-24" />
+              {/* Other info skeleton */}
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
           </Card>
         ))}
       </div>
@@ -53,72 +71,9 @@ export function ResultsList({ schools, isLoading }: ResultsListProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {schools.map((school) => (
-        <Link key={school.id} href={`/schools/${school.id}`}>
-          <Card className="hover:bg-accent transition-colors cursor-pointer">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-2">
-                <CardTitle className="text-xl">
-                  {school.canonicalName}
-                </CardTitle>
-                <SaveButton schoolId={school.id} variant="ghost" size="icon" />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {school.domain && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Globe className="h-4 w-4" />
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      const url = school.domain.startsWith("http")
-                        ? school.domain
-                        : `https://${school.domain}`;
-                      window.open(url, "_blank", "noopener,noreferrer");
-                    }}
-                    className="hover:text-primary underline text-left"
-                  >
-                    {school.domain}
-                  </button>
-                </div>
-              )}
-              {(() => {
-                const addr = school.addrStd;
-                if (
-                  addr &&
-                  typeof addr === "object" &&
-                  addr !== null &&
-                  !Array.isArray(addr)
-                ) {
-                  const addrObj = addr as Record<string, unknown>;
-                  const addressParts = [
-                    addrObj.city,
-                    addrObj.state,
-                    addrObj.country,
-                  ]
-                    .filter(
-                      (part): part is string =>
-                        typeof part === "string" && part.length > 0
-                    )
-                    .join(", ");
-
-                  if (addressParts) {
-                    return (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <MapPin className="h-4 w-4" />
-                        <span>{addressParts}</span>
-                      </div>
-                    );
-                  }
-                }
-                return null;
-              })()}
-            </CardContent>
-          </Card>
-        </Link>
+        <SchoolCard key={school.id} school={school} />
       ))}
     </div>
   );

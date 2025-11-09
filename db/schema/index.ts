@@ -1,4 +1,3 @@
-export * from "./seeds";
 export * from "./schools";
 export * from "./sources";
 export * from "./snapshots";

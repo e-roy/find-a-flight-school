@@ -19,10 +19,9 @@ import {
 import { cn } from "@/lib/utils";
 
 interface ExistenceStatus {
-  existsInSeeds: boolean;
   existsInSchools: boolean;
   matches: Array<{
-    type: "seed" | "school";
+    type: "school";
     id: string;
     name: string;
     domain?: string;
@@ -36,7 +35,7 @@ interface ResultsPanelProps {
   existenceStatus?: Map<string, ExistenceStatus>;
   onImport?: (candidate: Candidate) => void;
   importingIds?: Set<string>;
-  importedSeedIds?: Map<string, string>; // candidateId -> seedId
+  importedSchoolIds?: Map<string, string>; // candidateId -> schoolId
   selectedCandidateIds?: Set<string>;
   onSelectionChange?: (candidateId: string, selected: boolean) => void;
   onSelectAll?: (selected: boolean) => void;
@@ -49,7 +48,7 @@ export function ResultsPanel({
   existenceStatus,
   onImport,
   importingIds,
-  importedSeedIds,
+  importedSchoolIds,
   selectedCandidateIds = new Set(),
   onSelectionChange,
   onSelectAll,
@@ -78,10 +77,10 @@ export function ResultsPanel({
       );
     }
 
-    if (status.existsInSeeds) {
+    if (status.existsInSchools) {
       return (
         <Badge variant="secondary" className="text-xs">
-          Exists in Seeds
+          Exists
         </Badge>
       );
     }
@@ -102,7 +101,7 @@ export function ResultsPanel({
       .map((candidate) => getCandidateId(candidate))
       .filter((candidateId) => {
         const status = existenceStatus?.get(candidateId);
-        return status && !status.existsInSeeds;
+        return status && !status.existsInSchools;
       });
   };
 
@@ -146,9 +145,9 @@ export function ResultsPanel({
               const isSelected = selectedCandidateId === candidateId;
               const status = existenceStatus?.get(candidateId);
               const isImporting = importingIds?.has(candidateId);
-              const canImport = status && !status.existsInSeeds;
-              const seedId = importedSeedIds?.get(candidateId);
-              const isImported = !!seedId;
+              const canImport = status && !status.existsInSchools;
+              const schoolId = importedSchoolIds?.get(candidateId);
+              const isImported = !!schoolId;
 
               return (
                 <TableRow

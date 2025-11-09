@@ -9,8 +9,7 @@ export function AdminNav() {
 
   const tabs = [
     { name: "Overview", href: "/admin/overview" },
-    { name: "Seeds", href: "/admin/seeds" },
-    { name: "Dedupe", href: "/admin/dedupe" },
+    { name: "Schools", href: "/admin/schools" },
     { name: "Queue", href: "/admin/queue" },
     { name: "Snapshots", href: "/admin/snapshots" },
     { name: "Facts", href: "/admin/facts" },

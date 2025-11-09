@@ -27,8 +27,17 @@ export default function QueuePage() {
       { refetchInterval: 10000 } // Auto-refresh every 10 seconds
     );
 
+  const { data: processing, isLoading: isLoadingProcessing } =
+    trpc.crawlQueue.listProcessing.useQuery(
+      { limit: 50 },
+      { refetchInterval: 10000 } // Auto-refresh every 10 seconds
+    );
+
   const { data: failed, isLoading: isLoadingFailed } =
-    trpc.crawlQueue.listFailed.useQuery({ limit: 50 });
+    trpc.crawlQueue.listFailed.useQuery(
+      { limit: 50 },
+      { refetchInterval: 10000 } // Auto-refresh every 10 seconds
+    );
 
   return (
     <div className="space-y-6">
@@ -102,6 +111,73 @@ export default function QueuePage() {
                       <TableCell>
                         {item.createdAt
                           ? new Date(item.createdAt).toLocaleString()
+                          : "-"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Being Processed</CardTitle>
+          <CardDescription>
+            {isLoadingProcessing
+              ? "Loading..."
+              : `${processing?.length ?? 0} items being processed`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>School ID</TableHead>
+                  <TableHead>Domain</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Firecrawl Job ID</TableHead>
+                  <TableHead>Updated At</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoadingProcessing ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="text-center text-muted-foreground py-8"
+                    >
+                      Loading...
+                    </TableCell>
+                  </TableRow>
+                ) : !processing || processing.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="text-center text-muted-foreground py-8"
+                    >
+                      No items being processed
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  processing.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-mono text-xs">
+                        {item.schoolId}
+                      </TableCell>
+                      <TableCell>{item.domain}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{item.status}</Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {item.firecrawlJobId || "-"}
+                      </TableCell>
+                      <TableCell>
+                        {item.updatedAt
+                          ? new Date(item.updatedAt).toLocaleString()
                           : "-"}
                       </TableCell>
                     </TableRow>

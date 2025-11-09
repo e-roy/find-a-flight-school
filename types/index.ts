@@ -13,6 +13,12 @@ export const FACT_KEYS = {
   LOCATION_ADDRESS: "location.address",
   CONTACT_EMAIL: "contact.email",
   CONTACT_PHONE: "contact.phone",
+  RATING: "rating.value",
+  RATING_COUNT: "rating.count",
+  BUSINESS_STATUS: "business.status",
+  PRICE_LEVEL: "price.level",
+  PHOTOS: "photos",
+  OPENING_HOURS: "opening_hours",
 } as const;
 
 export type FactKey = (typeof FACT_KEYS)[keyof typeof FACT_KEYS];

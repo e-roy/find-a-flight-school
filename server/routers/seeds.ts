@@ -1,15 +1,16 @@
 import { router, protectedProcedure, publicProcedure } from "@/lib/trpc/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { seedCandidates } from "@/db/schema/seeds";
 import { schools } from "@/db/schema/schools";
 import { sources } from "@/db/schema/sources";
 import { crawlQueue } from "@/db/schema/crawl_queue";
+import { facts } from "@/db/schema/facts";
 import { desc, or, ilike, eq, and, isNotNull } from "drizzle-orm";
 import { hasRole } from "@/lib/rbac";
 import { search } from "@/lib/discovery/google";
 import type { Candidate } from "@/lib/discovery/google";
 import { checkDiscoverQuota, checkImportQuota } from "@/lib/quota";
+import { normalizeGooglePlaces } from "@/lib/normalize-google-places";
 
 /**
  * Middleware to check if user has admin role
@@ -96,6 +97,225 @@ function normalizeAddress(
 }
 
 /**
+ * Create school from Google Places data
+ * Handles school creation, source record, facts, and crawl enqueue
+ */
+async function createSchoolFromGooglePlaces(
+  db: Awaited<
+    ReturnType<typeof import("@/lib/trpc/context").createContext>
+  >["db"],
+  input: {
+    name: string;
+    website?: string | null;
+    phone?: string | null;
+    placeId?: string | null;
+    rating?: number | null;
+    userRatingCount?: number | null;
+    businessStatus?: string | null;
+    priceLevel?: string | null;
+    photos?: any;
+    regularOpeningHours?: any;
+    currentOpeningHours?: any;
+  },
+  addressData: {
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    streetAddress: string | null;
+    postalCode: string | null;
+  },
+  collectedAt: Date
+): Promise<{ schoolId: string; queueId: string | null; isNew: boolean }> {
+  // Normalize domain from website
+  const normalizeDomain = (
+    website: string | undefined | null
+  ): string | null => {
+    if (!website) return null;
+    try {
+      if (!website.includes("://")) {
+        return (
+          website
+            .replace(/^www\./i, "")
+            .replace(/\/+$/, "")
+            .toLowerCase() || null
+        );
+      }
+      const url = new URL(website);
+      return url.hostname.replace(/^www\./i, "").toLowerCase() || null;
+    } catch {
+      const match = website.match(
+        /(?:https?:\/\/)?(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})/i
+      );
+      return match?.[1]?.toLowerCase() || null;
+    }
+  };
+
+  const domain = normalizeDomain(input.website);
+
+  // Check for existing school by domain (dedupe check)
+  let schoolId: string;
+  let queueId: string | null = null;
+  let isNew = false;
+
+  if (domain) {
+    const existingSchool = await db
+      .select()
+      .from(schools)
+      .where(eq(schools.domain, domain))
+      .limit(1);
+
+    if (existingSchool.length > 0) {
+      // School already exists, just create source record
+      // Skip facts creation to prevent duplicates
+      schoolId = existingSchool[0].id;
+      const sourceId = crypto.randomUUID();
+      const addrStd = normalizeAddress(
+        addressData.city,
+        addressData.state,
+        addressData.country,
+        addressData.streetAddress,
+        addressData.postalCode
+      );
+
+      await db.insert(sources).values({
+        id: sourceId,
+        schoolId,
+        sourceType: "PLACES",
+        sourceRef: input.placeId || null,
+        observedDomain: domain,
+        observedName: input.name,
+        observedPhone: input.phone || null,
+        observedAddr: addrStd,
+        collectedAt,
+      });
+
+      // Return early - no facts or crawl enqueue for existing schools
+      return { schoolId, queueId: null, isNew: false };
+    } else {
+      // Create new school
+      isNew = true;
+      schoolId = crypto.randomUUID();
+      const addrStd = normalizeAddress(
+        addressData.city,
+        addressData.state,
+        addressData.country,
+        addressData.streetAddress,
+        addressData.postalCode
+      );
+
+      await db.insert(schools).values({
+        id: schoolId,
+        canonicalName: input.name,
+        addrStd,
+        phone: input.phone || null,
+        domain,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Create source record for lineage
+      const sourceId = crypto.randomUUID();
+      await db.insert(sources).values({
+        id: sourceId,
+        schoolId,
+        sourceType: "PLACES",
+        sourceRef: input.placeId || null,
+        observedDomain: domain,
+        observedName: input.name,
+        observedPhone: input.phone || null,
+        observedAddr: addrStd,
+        collectedAt,
+      });
+
+      // Enqueue crawl (check for existing pending job first)
+      const existingJob = await db
+        .select()
+        .from(crawlQueue)
+        .where(
+          and(
+            eq(crawlQueue.schoolId, schoolId),
+            eq(crawlQueue.status, "pending")
+          )
+        )
+        .limit(1);
+
+      if (existingJob.length === 0 && domain) {
+        queueId = crypto.randomUUID();
+        await db.insert(crawlQueue).values({
+          id: queueId,
+          schoolId,
+          domain,
+          status: "pending",
+          attempts: 0,
+          scheduledAt: new Date(),
+        });
+      } else if (existingJob.length > 0) {
+        queueId = existingJob[0].id;
+      }
+    }
+  } else {
+    // No domain, create school anyway (may not have website)
+    isNew = true;
+    schoolId = crypto.randomUUID();
+    const addrStd = normalizeAddress(
+      addressData.city,
+      addressData.state,
+      addressData.country,
+      addressData.streetAddress,
+      addressData.postalCode
+    );
+
+    await db.insert(schools).values({
+      id: schoolId,
+      canonicalName: input.name,
+      addrStd,
+      phone: input.phone || null,
+      domain: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Create source record for lineage
+    const sourceId = crypto.randomUUID();
+    await db.insert(sources).values({
+      id: sourceId,
+      schoolId,
+      sourceType: "PLACES",
+      sourceRef: input.placeId || null,
+      observedDomain: null,
+      observedName: input.name,
+      observedPhone: input.phone || null,
+      observedAddr: addrStd,
+      collectedAt,
+    });
+  }
+
+  // Create facts from Google Places data (only for new schools)
+  const seedFacts = normalizeGooglePlaces({
+    rating: input.rating ?? null,
+    userRatingCount: input.userRatingCount ?? null,
+    businessStatus: input.businessStatus || null,
+    priceLevel: input.priceLevel || null,
+    photos: input.photos || null,
+    regularOpeningHours: input.regularOpeningHours || null,
+    phone: input.phone || null,
+  });
+  if (seedFacts.length > 0) {
+    const factsToInsert = seedFacts.map((fact) => ({
+      schoolId,
+      factKey: fact.factKey,
+      factValue: fact.factValue,
+      provenance: "PLACES" as const,
+      asOf: collectedAt,
+    }));
+
+    await db.insert(facts).values(factsToInsert);
+  }
+
+  return { schoolId, queueId, isNew };
+}
+
+/**
  * Parse address from Google Places addressComponents
  * Google provides structured address data, so we rely on it exclusively
  */
@@ -174,59 +394,38 @@ function parseAddressFromComponents(addressComponents: any[] | undefined): {
 }
 
 export const seedsRouter = router({
-  list: publicProcedure
-    .input(
-      z.object({ limit: z.number().min(1).max(100).default(50) }).optional()
-    )
-    .query(async ({ ctx, input }) => {
-      const limit = input?.limit ?? 50;
-      return ctx.db.query.seedCandidates.findMany({
-        limit,
-        orderBy: [desc(seedCandidates.createdAt)],
-      });
-    }),
-  uploadRow: protectedProcedure
-    .input(
-      z.object({
-        name: z.string().min(2),
-        city: z.string().min(1),
-        state: z.string().min(2),
-        country: z.string().min(2),
-        phone: z.string().optional(),
-        website: z.string().url().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Insert with resolution_method/confidence rules from Phase 1
-      await ctx.db.insert(seedCandidates).values({
-        id: crypto.randomUUID(),
-        name: input.name,
-        city: input.city,
-        state: input.state,
-        country: input.country,
-        phone: input.phone,
-        website: input.website,
-        resolutionMethod: input.website ? "manual" : null,
-        confidence: input.website ? 1 : null,
-      });
-      return { ok: true };
-    }),
-  search: publicProcedure
-    .input(z.object({ query: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      const searchTerm = `%${input.query}%`;
-      return ctx.db
-        .select()
-        .from(seedCandidates)
-        .where(
-          or(
-            ilike(seedCandidates.name, searchTerm),
-            ilike(seedCandidates.city, searchTerm),
-            ilike(seedCandidates.state, searchTerm)
-          )
-        )
-        .orderBy(desc(seedCandidates.createdAt))
-        .limit(100);
+  geocode: isAdmin
+    .input(z.object({ address: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
+      if (!GOOGLE_PLACES_API_KEY) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Google Places API key not configured",
+        });
+      }
+
+      try {
+        const url = new URL(
+          "https://maps.googleapis.com/maps/api/geocode/json"
+        );
+        url.searchParams.set("address", input.address);
+        url.searchParams.set("key", GOOGLE_PLACES_API_KEY);
+
+        const response = await fetch(url.toString());
+        const data = await response.json();
+
+        if (data.status === "OK" && data.results?.[0]?.geometry?.location) {
+          return {
+            lat: data.results[0].geometry.location.lat,
+            lng: data.results[0].geometry.location.lng,
+          };
+        }
+        return null;
+      } catch (error) {
+        console.error("Geocoding error:", error);
+        return null;
+      }
     }),
   discover: isAdmin
     .input(
@@ -319,73 +518,13 @@ export const seedsRouter = router({
       const normalizedName = input.name?.toLowerCase().trim();
 
       const matches: Array<{
-        type: "seed" | "school";
+        type: "school";
         id: string;
         name: string;
         domain?: string;
       }> = [];
 
-      // Check seed_candidates
-      const seedConditions = [];
-      if (normalizedDomain) {
-        seedConditions.push(
-          or(
-            eq(seedCandidates.website, normalizedDomain),
-            ilike(seedCandidates.website, `%${normalizedDomain}%`)
-          )
-        );
-      }
-      if (normalizedName) {
-        seedConditions.push(ilike(seedCandidates.name, `%${normalizedName}%`));
-      }
-      if (normalizedPhone) {
-        seedConditions.push(
-          or(
-            eq(seedCandidates.phone, normalizedPhone),
-            ilike(seedCandidates.phone, `%${normalizedPhone}%`)
-          )
-        );
-      }
-
-      if (seedConditions.length > 0) {
-        const seedMatches = await ctx.db
-          .select({
-            id: seedCandidates.id,
-            name: seedCandidates.name,
-            website: seedCandidates.website,
-            phone: seedCandidates.phone,
-          })
-          .from(seedCandidates)
-          .where(or(...seedConditions));
-
-        for (const seed of seedMatches) {
-          // Additional filtering for exact matches
-          let isMatch = false;
-          if (normalizedDomain && seed.website) {
-            const seedDomain = normalizeDomain(seed.website);
-            if (seedDomain === normalizedDomain) isMatch = true;
-          }
-          if (normalizedName && seed.name) {
-            if (seed.name.toLowerCase().trim() === normalizedName)
-              isMatch = true;
-          }
-          if (normalizedPhone && seed.phone) {
-            const seedPhone = normalizePhone(seed.phone);
-            if (seedPhone === normalizedPhone) isMatch = true;
-          }
-
-          if (isMatch) {
-            matches.push({
-              type: "seed",
-              id: seed.id,
-              name: seed.name,
-              domain: seed.website || undefined,
-            });
-          }
-        }
-      }
-
-      // Check schools
+      // Check schools only
       const schoolConditions = [];
       if (normalizedDomain) {
         schoolConditions.push(eq(schools.domain, normalizedDomain));
@@ -442,11 +581,9 @@ export const seedsRouter = router({
         }
       }
 
-      const existsInSeeds = matches.some((m) => m.type === "seed");
-      const existsInSchools = matches.some((m) => m.type === "school");
+      const existsInSchools = matches.length > 0;
 
       return {
-        existsInSeeds,
         existsInSchools,
         matches,
       };
@@ -498,302 +635,34 @@ export const seedsRouter = router({
       }
 
       // Extract city/state/country/street/postal from address using Google's structured addressComponents
-      const { city, state, country, streetAddress, postalCode } =
-        parseAddressFromComponents(input.addressComponents);
-
-      // Normalize domain
-      const normalizeDomain = (website: string | undefined): string | null => {
-        if (!website) return null;
-        try {
-          if (!website.includes("://")) {
-            return (
-              website
-                .replace(/^www\./i, "")
-                .replace(/\/+$/, "")
-                .toLowerCase() || null
-            );
-          }
-          const url = new URL(website);
-          return url.hostname.replace(/^www\./i, "").toLowerCase() || null;
-        } catch {
-          const match = website.match(
-            /(?:https?:\/\/)?(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})/i
-          );
-          return match?.[1]?.toLowerCase() || null;
-        }
-      };
-
-      const normalizedWebsite = normalizeDomain(input.website);
+      const addressData = parseAddressFromComponents(input.addressComponents);
       const now = new Date();
 
-      // Prepare evidence JSON with enhanced fields
-      const evidenceJson = {
-        provider: "PLACES",
-        source_type: "PLACES",
-        place_id: input.placeId,
-        query_params: input.queryParams || {},
-        timestamp: now.toISOString(),
-        candidate: {
+      // Create school directly from Google Places data
+      const result = await createSchoolFromGooglePlaces(
+        ctx.db,
+        {
           name: input.name,
-          address: input.address,
-          phone: input.phone,
           website: input.website,
-          lat: input.lat,
-          lng: input.lng,
+          phone: input.phone,
+          placeId: input.placeId,
           rating: input.rating,
           userRatingCount: input.userRatingCount,
           businessStatus: input.businessStatus,
           priceLevel: input.priceLevel,
+          photos: input.photos,
           regularOpeningHours: input.regularOpeningHours,
           currentOpeningHours: input.currentOpeningHours,
-          photos: input.photos,
-          addressComponents: input.addressComponents,
         },
+        addressData,
+        now
+      );
+
+      return {
+        ok: true,
+        schoolId: result.schoolId,
+        queueId: result.queueId || undefined,
+        isNew: result.isNew,
       };
-
-      const seedId = crypto.randomUUID();
-      await ctx.db.insert(seedCandidates).values({
-        id: seedId,
-        name: input.name,
-        city,
-        state,
-        country,
-        streetAddress: streetAddress || null,
-        postalCode: postalCode || null,
-        phone: input.phone || null,
-        website: normalizedWebsite,
-        resolutionMethod: normalizedWebsite ? "manual" : null,
-        confidence: 1,
-        rating: input.rating ?? null,
-        userRatingCount: input.userRatingCount ?? null,
-        businessStatus: input.businessStatus ?? null,
-        priceLevel: input.priceLevel ?? null,
-        photos: input.photos ? (input.photos as any) : null,
-        regularOpeningHours: input.regularOpeningHours ?? null,
-        currentOpeningHours: input.currentOpeningHours ?? null,
-        evidenceJson,
-        firstSeenAt: now,
-        lastSeenAt: now,
-      });
-
-      return { ok: true, seedId };
-    }),
-  promoteAndQueue: isAdmin
-    .input(z.object({ seedId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      // Check quota
-      const userId = ctx.session?.user?.id || "";
-      const quotaCheck = await checkImportQuota(userId, 50);
-      if (!quotaCheck.allowed) {
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message: quotaCheck.error || "Import quota exceeded",
-        });
-      }
-
-      try {
-        // Fetch seed candidate
-        const seed = await ctx.db.query.seedCandidates.findFirst({
-          where: (q, { eq }) => eq(q.id, input.seedId),
-        });
-
-        if (!seed) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Seed candidate not found",
-          });
-        }
-
-        // Require website - Google Places discovery should provide this
-        if (!seed.website) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "Seed candidate must have a website to be promoted. Use Google Places discovery to import seeds with website data.",
-          });
-        }
-
-        // Extract domain from website
-        const domain = extractDomain(seed.website);
-        if (!domain) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Seed candidate website is invalid or could not be parsed",
-          });
-        }
-
-        // Check for existing school by domain (dedupe check)
-        let schoolId: string;
-        let queueId: string | null = null;
-
-        const existingSchool = await ctx.db
-          .select()
-          .from(schools)
-          .where(eq(schools.domain, domain))
-          .limit(1);
-
-        if (existingSchool.length > 0) {
-          // School already exists, just create source record
-          schoolId = existingSchool[0].id;
-          const sourceId = crypto.randomUUID();
-          await ctx.db.insert(sources).values({
-            id: sourceId,
-            schoolId,
-            sourceType: "PLACES",
-            sourceRef: seed.id,
-            observedDomain: domain,
-            observedName: seed.name,
-            observedPhone: seed.phone,
-            observedAddr: normalizeAddress(
-              seed.city,
-              seed.state,
-              seed.country,
-              seed.streetAddress,
-              seed.postalCode
-            ),
-            collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
-          });
-        } else {
-          // Create new school
-          schoolId = crypto.randomUUID();
-          const addrStd = normalizeAddress(
-            seed.city,
-            seed.state,
-            seed.country,
-            seed.streetAddress,
-            seed.postalCode
-          );
-
-          await ctx.db.insert(schools).values({
-            id: schoolId,
-            canonicalName: seed.name,
-            addrStd,
-            phone: seed.phone,
-            domain,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-
-          // Create source record for lineage
-          const sourceId = crypto.randomUUID();
-          await ctx.db.insert(sources).values({
-            id: sourceId,
-            schoolId,
-            sourceType: "PLACES",
-            sourceRef: seed.id,
-            observedDomain: domain,
-            observedName: seed.name,
-            observedPhone: seed.phone,
-            observedAddr: addrStd,
-            collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
-          });
-        }
-
-        // Enqueue crawl (check for existing pending job first)
-        const existingJob = await ctx.db
-          .select()
-          .from(crawlQueue)
-          .where(
-            and(
-              eq(crawlQueue.schoolId, schoolId),
-              eq(crawlQueue.status, "pending")
-            )
-          )
-          .limit(1);
-
-        if (existingJob.length === 0) {
-          queueId = crypto.randomUUID();
-          await ctx.db.insert(crawlQueue).values({
-            id: queueId,
-            schoolId,
-            domain,
-            status: "pending",
-            attempts: 0,
-            scheduledAt: new Date(),
-          });
-        } else {
-          queueId = existingJob[0].id;
-        }
-
-        return {
-          ok: true,
-          schoolId,
-          queueId: queueId || undefined,
-        };
-      } catch (error) {
-        if (error instanceof TRPCError) {
-          throw error;
-        }
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Failed to promote and queue seed",
-        });
-      }
-    }),
-  createFromUrl: isAdmin
-    .input(
-      z.object({
-        url: z.string().url(),
-        name: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        country: z.string().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Normalize URL to domain
-      const normalizeDomain = (url: string): string => {
-        try {
-          const urlObj = new URL(url);
-          return urlObj.hostname.replace(/^www\./i, "").toLowerCase();
-        } catch {
-          // Fallback: try to extract domain from string
-          const match = url.match(
-            /(?:https?:\/\/)?(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})/i
-          );
-          if (match && match[1]) {
-            return match[1].toLowerCase();
-          }
-          throw new Error("Invalid URL format");
-        }
-      };
-
-      const normalizedDomain = normalizeDomain(input.url);
-
-      // Extract name from domain if not provided
-      let name = input.name;
-      if (!name) {
-        const domainParts = normalizedDomain.split(".");
-        name = domainParts[0]
-          .split(/[-_]/)
-          .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-          .join(" ");
-      }
-
-      const now = new Date();
-      const evidenceJson = {
-        source_type: "MANUAL",
-        url: input.url,
-      };
-
-      const seedId = crypto.randomUUID();
-      await ctx.db.insert(seedCandidates).values({
-        id: seedId,
-        name,
-        city: input.city || null,
-        state: input.state || null,
-        country: input.country || null,
-        website: normalizedDomain,
-        resolutionMethod: "manual",
-        confidence: 1,
-        evidenceJson,
-        firstSeenAt: now,
-        lastSeenAt: now,
-      });
-
-      return { ok: true, seedId };
     }),
 });

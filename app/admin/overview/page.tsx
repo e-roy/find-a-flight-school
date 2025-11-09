@@ -12,9 +12,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 export default function AdminOverviewPage() {
-  const { data: seeds, isLoading: isLoadingSeeds } = trpc.admin.seeds.list.useQuery(
-    { limit: 100 }
-  );
+  const { data: schoolsData, isLoading: isLoadingSchools } =
+    trpc.schools.listWithCrawlStatus.useQuery({ limit: 1 });
 
   const { data: pendingFacts, isLoading: isLoadingFacts } =
     trpc.admin.facts.listPending.useQuery({ limit: 100 });
@@ -22,7 +21,7 @@ export default function AdminOverviewPage() {
   const { data: queueData, isLoading: isLoadingQueue } =
     trpc.admin.queue.list.useQuery({ limit: 100 });
 
-  const seedsCount = seeds?.length ?? 0;
+  const schoolsCount = schoolsData?.total ?? 0;
   const pendingFactsCount = pendingFacts?.length ?? 0;
   const pendingQueueCount = queueData?.totalPending ?? 0;
   const failedQueueCount = queueData?.totalFailed ?? 0;
@@ -39,15 +38,15 @@ export default function AdminOverviewPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardTitle>Seed Candidates</CardTitle>
-            <CardDescription>Total seed candidates in system</CardDescription>
+            <CardTitle>Schools</CardTitle>
+            <CardDescription>Total schools in system</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {isLoadingSeeds ? "..." : seedsCount.toLocaleString()}
+              {isLoadingSchools ? "..." : schoolsCount.toLocaleString()}
             </div>
             <Button variant="link" className="p-0 h-auto mt-2" asChild>
-              <Link href="/admin/seeds">View Seeds →</Link>
+              <Link href="/admin/schools">View Schools →</Link>
             </Button>
           </CardContent>
         </Card>
@@ -106,10 +105,7 @@ export default function AdminOverviewPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             <Button variant="outline" asChild>
-              <Link href="/admin/seeds">Manage Seeds</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/admin/dedupe">Review Deduplication</Link>
+              <Link href="/admin/schools">Manage Schools</Link>
             </Button>
             <Button variant="outline" asChild>
               <Link href="/admin/facts">Moderate Facts</Link>

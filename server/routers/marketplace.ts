@@ -2,14 +2,37 @@ import { router, publicProcedure, protectedProcedure } from "@/lib/trpc/trpc";
 import { z } from "zod";
 import { savedSchools, comparisons } from "@/db/schema";
 import { schools } from "@/db/schema/schools";
+import { facts } from "@/db/schema/facts";
 import { MatchRequestSchema } from "@/lib/validation";
 import { eq, and, desc } from "drizzle-orm";
+import { FACT_KEYS } from "@/types";
 
 // Search input schema extends MatchRequestSchema with pagination
 const SearchInputSchema = MatchRequestSchema.extend({
   limit: z.number().min(1).max(100).default(50),
   offset: z.number().min(0).default(0),
 });
+
+// Helper to get latest facts for a school
+async function getLatestFactsForSchool(
+  db: typeof import("@/lib/db").db,
+  schoolId: string
+): Promise<Map<string, typeof facts.$inferSelect>> {
+  const allFacts = await db.query.facts.findMany({
+    where: eq(facts.schoolId, schoolId),
+    orderBy: [desc(facts.asOf)],
+  });
+
+  // Group by fact_key and keep only the latest (first) fact per key
+  const latestFactsByKey = new Map<string, typeof facts.$inferSelect>();
+  for (const fact of allFacts) {
+    if (!latestFactsByKey.has(fact.factKey)) {
+      latestFactsByKey.set(fact.factKey, fact);
+    }
+  }
+
+  return latestFactsByKey;
+}
 
 export const marketplaceRouter = router({
   search: router({
@@ -26,7 +49,53 @@ export const marketplaceRouter = router({
             orderBy: (schools, { desc }) => [desc(schools.createdAt)],
           });
           // Manual pagination
-          return allSchools.slice(offset, offset + limit);
+          const paginatedSchools = allSchools.slice(offset, offset + limit);
+
+          // Fetch latest facts for each school
+          const schoolsWithFacts = await Promise.all(
+            paginatedSchools.map(async (school) => {
+              const latestFacts = await getLatestFactsForSchool(
+                ctx.db,
+                school.id
+              );
+
+              // Extract key facts for card display
+              const programs = Array.from(latestFacts.values())
+                .filter((f) => f.factKey === FACT_KEYS.PROGRAM_TYPE)
+                .map((f) => f.factValue)
+                .filter(
+                  (v): v is string =>
+                    typeof v === "string" && v.length > 0
+                );
+
+              const costBand = latestFacts.get(FACT_KEYS.COST_BAND)?.factValue;
+              const fleetAircraft = latestFacts.get(FACT_KEYS.FLEET_AIRCRAFT)
+                ?.factValue;
+              const rating = latestFacts.get(FACT_KEYS.RATING)?.factValue;
+              const ratingCount = latestFacts.get(FACT_KEYS.RATING_COUNT)
+                ?.factValue;
+              const photos = latestFacts.get(FACT_KEYS.PHOTOS)?.factValue;
+
+              return {
+                ...school,
+                facts: {
+                  programs,
+                  costBand:
+                    typeof costBand === "string" ? costBand : undefined,
+                  fleetAircraft: Array.isArray(fleetAircraft)
+                    ? fleetAircraft
+                    : undefined,
+                  rating:
+                    typeof rating === "number" ? rating : undefined,
+                  ratingCount:
+                    typeof ratingCount === "number" ? ratingCount : undefined,
+                  photos: Array.isArray(photos) ? photos : undefined,
+                },
+              };
+            })
+          );
+
+          return schoolsWithFacts;
         } catch (error) {
           // Fallback to standard query builder if relational API fails
           console.error(
@@ -38,7 +107,50 @@ export const marketplaceRouter = router({
             .select()
             .from(schools)
             .orderBy(desc(schools.createdAt));
-          return allSchools.slice(offset, offset + limit);
+          const paginatedSchools = allSchools.slice(offset, offset + limit);
+
+          // Fetch latest facts for each school
+          const schoolsWithFacts = await Promise.all(
+            paginatedSchools.map(async (school) => {
+              const latestFacts = await getLatestFactsForSchool(db, school.id);
+
+              // Extract key facts for card display
+              const programs = Array.from(latestFacts.values())
+                .filter((f) => f.factKey === FACT_KEYS.PROGRAM_TYPE)
+                .map((f) => f.factValue)
+                .filter(
+                  (v): v is string =>
+                    typeof v === "string" && v.length > 0
+                );
+
+              const costBand = latestFacts.get(FACT_KEYS.COST_BAND)?.factValue;
+              const fleetAircraft = latestFacts.get(FACT_KEYS.FLEET_AIRCRAFT)
+                ?.factValue;
+              const rating = latestFacts.get(FACT_KEYS.RATING)?.factValue;
+              const ratingCount = latestFacts.get(FACT_KEYS.RATING_COUNT)
+                ?.factValue;
+              const photos = latestFacts.get(FACT_KEYS.PHOTOS)?.factValue;
+
+              return {
+                ...school,
+                facts: {
+                  programs,
+                  costBand:
+                    typeof costBand === "string" ? costBand : undefined,
+                  fleetAircraft: Array.isArray(fleetAircraft)
+                    ? fleetAircraft
+                    : undefined,
+                  rating:
+                    typeof rating === "number" ? rating : undefined,
+                  ratingCount:
+                    typeof ratingCount === "number" ? ratingCount : undefined,
+                  photos: Array.isArray(photos) ? photos : undefined,
+                },
+              };
+            })
+          );
+
+          return schoolsWithFacts;
         }
       }),
   }),

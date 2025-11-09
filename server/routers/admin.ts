@@ -4,8 +4,6 @@ import { hasRole } from "@/lib/rbac";
 import { z } from "zod";
 import { factsRouter } from "./facts";
 import { crawlQueueRouter } from "./crawl-queue";
-import { seedsRouter } from "./seeds";
-import { dedupeRouter } from "./dedupe";
 import { signalsRouter } from "./signals";
 import { snapshotsRouter } from "./snapshots";
 
@@ -92,26 +90,6 @@ export const adminRouter = router({
       .mutation(async ({ ctx, input }) => {
         const caller = crawlQueueRouter.createCaller(ctx);
         return caller.process(input);
-      }),
-  }),
-
-  seeds: router({
-    list: isAdmin
-      .input(
-        z.object({ limit: z.number().min(1).max(100).default(50) }).optional()
-      )
-      .query(async ({ ctx, input }) => {
-        const caller = seedsRouter.createCaller(ctx);
-        return caller.list(input);
-      }),
-  }),
-
-  dedupe: router({
-    run: isAdmin
-      .input(z.object({ clusterId: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const caller = dedupeRouter.createCaller(ctx);
-        return caller.approveMerge(input);
       }),
   }),
 

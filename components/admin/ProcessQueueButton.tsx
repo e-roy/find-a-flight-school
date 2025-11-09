@@ -23,7 +23,7 @@ export function ProcessQueueButton({
       if (result.processed === 0) {
         toast.info("No pending items to process");
       } else {
-        const message = `Processed ${result.processed} items: ${result.completed} completed, ${result.failed} failed, ${result.retried} retried`;
+        const message = `Processed ${result.processed} items: ${result.queued} queued, ${result.completed} completed, ${result.failed} failed`;
         toast.success(message);
 
         // Show error details if there are errors
@@ -45,6 +45,7 @@ export function ProcessQueueButton({
         }
       }
       utils.crawlQueue.listPending.invalidate();
+      utils.crawlQueue.listProcessing.invalidate();
       utils.crawlQueue.listFailed.invalidate();
       onSuccess?.();
       setIsProcessing(false);

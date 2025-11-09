@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "@/lib/trpc/trpc";
 import { z } from "zod";
 import { crawlQueue } from "@/db/schema/crawl_queue";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, or } from "drizzle-orm";
 import { processCrawlQueue } from "@/lib/crawl-worker";
 
 export const crawlQueueRouter = router({
@@ -33,6 +33,19 @@ export const crawlQueueRouter = router({
         where: (q, { eq }) => eq(q.status, "pending"),
         limit,
         orderBy: [desc(crawlQueue.scheduledAt)],
+      });
+    }),
+  listProcessing: protectedProcedure
+    .input(
+      z.object({ limit: z.number().min(1).max(100).default(25) }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 25;
+      return ctx.db.query.crawlQueue.findMany({
+        where: (q, { eq, or }) =>
+          or(eq(q.status, "queued"), eq(q.status, "processing")),
+        limit,
+        orderBy: [desc(crawlQueue.updatedAt)],
       });
     }),
   listFailed: protectedProcedure
