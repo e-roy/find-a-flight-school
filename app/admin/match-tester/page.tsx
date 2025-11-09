@@ -43,7 +43,7 @@ export default function MatchTesterPage() {
   const [city, setCity] = useState("");
   const [radiusKm, setRadiusKm] = useState("100");
   const [programs, setPrograms] = useState<string[]>([]);
-  const [budgetBand, setBudgetBand] = useState<string>("");
+  const [budgetBand, setBudgetBand] = useState<string | undefined>(undefined);
   const [aircraft, setAircraft] = useState<string[]>([]);
   const [aircraftInput, setAircraftInput] = useState("");
   const [results, setResults] = useState<MatchResult[]>([]);
@@ -99,7 +99,7 @@ export default function MatchTesterPage() {
         requestBody.programs = programs;
       }
 
-      if (budgetBand) {
+      if (budgetBand && budgetBand in COST_BANDS) {
         requestBody.budgetBand = budgetBand as typeof COST_BANDS[keyof typeof COST_BANDS];
       }
 
@@ -232,7 +232,6 @@ export default function MatchTesterPage() {
                   <SelectValue placeholder="Select budget band" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
                   {Object.values(COST_BANDS).map((band) => (
                     <SelectItem key={band} value={band}>
                       {band}

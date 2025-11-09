@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "@/lib/trpc/trpc";
 import { z } from "zod";
 import { crawlQueue } from "@/db/schema/crawl_queue";
 import { eq, desc } from "drizzle-orm";
+import { processCrawlQueue } from "@/lib/crawl-worker";
 
 export const crawlQueueRouter = router({
   enqueue: protectedProcedure
@@ -24,9 +25,7 @@ export const crawlQueueRouter = router({
     }),
   listPending: protectedProcedure
     .input(
-      z
-        .object({ limit: z.number().min(1).max(100).default(25) })
-        .optional()
+      z.object({ limit: z.number().min(1).max(100).default(25) }).optional()
     )
     .query(async ({ ctx, input }) => {
       const limit = input?.limit ?? 25;
@@ -38,9 +37,7 @@ export const crawlQueueRouter = router({
     }),
   listFailed: protectedProcedure
     .input(
-      z
-        .object({ limit: z.number().min(1).max(100).default(25) })
-        .optional()
+      z.object({ limit: z.number().min(1).max(100).default(25) }).optional()
     )
     .query(async ({ ctx, input }) => {
       const limit = input?.limit ?? 25;
@@ -77,5 +74,12 @@ export const crawlQueueRouter = router({
 
       return { ok: true };
     }),
+  process: protectedProcedure
+    .input(
+      z.object({ limit: z.number().min(1).max(100).default(20) }).optional()
+    )
+    .mutation(async ({ input }) => {
+      const limit = input?.limit ?? 20;
+      return await processCrawlQueue(limit);
+    }),
 });
-

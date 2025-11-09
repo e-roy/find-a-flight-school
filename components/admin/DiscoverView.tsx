@@ -28,7 +28,7 @@ interface ExistenceStatus {
   }>;
 }
 
-export default function DiscoverPage() {
+export function DiscoverView() {
   const [city, setCity] = useState("");
   const [radiusKm, setRadiusKm] = useState("30");
   const [query, setQuery] = useState("flight school");
@@ -81,6 +81,9 @@ export default function DiscoverPage() {
       toast.success(`Successfully imported ${variables.name}`);
       // Refresh existence status for this candidate
       checkExistence(variables);
+      // Invalidate seed list queries
+      utils.seeds.list.invalidate();
+      utils.seeds.search.invalidate();
     },
     onError: (error, variables) => {
       const candidateId = getCandidateId(variables);
@@ -111,6 +114,9 @@ export default function DiscoverPage() {
           checkExistence(candidate);
         });
       }
+      // Invalidate seed list queries
+      utils.seeds.list.invalidate();
+      utils.seeds.search.invalidate();
     },
     onError: (error, variables) => {
       setPromotingIds((prev) => {
@@ -232,13 +238,6 @@ export default function DiscoverPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Discover Flight Schools</h2>
-        <p className="text-muted-foreground">
-          Search for flight school candidates using Google Places API
-        </p>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Search Parameters</CardTitle>
@@ -358,3 +357,4 @@ export default function DiscoverPage() {
     </div>
   );
 }
+

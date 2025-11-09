@@ -13,11 +13,11 @@ import { Button } from "@/components/ui/button";
 
 export default function AdminOverviewPage() {
   const { data: seeds, isLoading: isLoadingSeeds } = trpc.admin.seeds.list.useQuery(
-    { limit: 1000 }
+    { limit: 100 }
   );
 
   const { data: pendingFacts, isLoading: isLoadingFacts } =
-    trpc.admin.facts.listPending.useQuery({ limit: 1000 });
+    trpc.admin.facts.listPending.useQuery({ limit: 100 });
 
   const { data: queueData, isLoading: isLoadingQueue } =
     trpc.admin.queue.list.useQuery({ limit: 100 });

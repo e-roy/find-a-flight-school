@@ -85,6 +85,14 @@ export const adminRouter = router({
           totalFailed: failed.length,
         };
       }),
+    process: isAdmin
+      .input(
+        z.object({ limit: z.number().min(1).max(100).default(20) }).optional()
+      )
+      .mutation(async ({ ctx, input }) => {
+        const caller = crawlQueueRouter.createCaller(ctx);
+        return caller.process(input);
+      }),
   }),
 
   seeds: router({

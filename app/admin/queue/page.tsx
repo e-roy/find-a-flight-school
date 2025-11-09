@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { QueueRetryButton } from "@/components/admin/QueueRetryButton";
-import { useEffect } from "react";
+import { ProcessQueueButton } from "@/components/admin/ProcessQueueButton";
 
 export default function QueuePage() {
   const { data: pending, isLoading: isLoadingPending } =
@@ -32,11 +32,14 @@ export default function QueuePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Crawl Queue</h2>
-        <p className="text-muted-foreground">
-          Monitor and manage crawl queue items
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Crawl Queue</h2>
+          <p className="text-muted-foreground">
+            Monitor and manage crawl queue items
+          </p>
+        </div>
+        <ProcessQueueButton limit={20} />
       </div>
 
       <Card>
@@ -181,4 +184,3 @@ export default function QueuePage() {
     </div>
   );
 }
-

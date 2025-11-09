@@ -69,19 +69,20 @@ export function ResultsList({ schools, isLoading }: ResultsListProps) {
               {school.domain && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Globe className="h-4 w-4" />
-                  <a
-                    href={
-                      school.domain.startsWith("http")
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      const url = school.domain.startsWith("http")
                         ? school.domain
-                        : `https://${school.domain}`
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="hover:text-primary underline"
+                        : `https://${school.domain}`;
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }}
+                    className="hover:text-primary underline text-left"
                   >
                     {school.domain}
-                  </a>
+                  </button>
                 </div>
               )}
               {(() => {
