@@ -34,7 +34,7 @@ export function ResultsList({ schools, isLoading }: ResultsListProps) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <Card key={i} className="h-full flex flex-col">
+          <Card key={i} className="h-full flex flex-col mt-0 pt-0">
             {/* Image skeleton */}
             <Skeleton className="w-full h-48 rounded-t-lg" />
             <div className="p-4 space-y-3 flex-1">

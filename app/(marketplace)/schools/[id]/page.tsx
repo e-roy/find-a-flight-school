@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -18,16 +19,26 @@ import { SchoolHero } from "@/components/schools/SchoolHero";
 import { ProgramsSection } from "@/components/schools/ProgramsSection";
 import { PricingSection } from "@/components/schools/PricingSection";
 import { FleetSection } from "@/components/schools/FleetSection";
-import { LocationSection } from "@/components/schools/LocationSection";
-import { ContactSection } from "@/components/schools/ContactSection";
+import { LocationContactSection } from "@/components/schools/LocationContactSection";
+import { SchoolDetailsSection } from "@/components/schools/SchoolDetailsSection";
 import { PhotosGallery } from "@/components/schools/PhotosGallery";
 import { OpeningHoursSection } from "@/components/schools/OpeningHoursSection";
 import { ScrapedDataSection } from "@/components/schools/ScrapedDataSection";
 
-import { extractPhotoUrls } from "@/lib/utils-photos";
-import { FACT_KEYS } from "@/types";
+import { organizeFactsByCategory } from "@/lib/utils-facts";
+import {
+  extractFinancingInfo,
+  submitFinancingIntent,
+} from "@/lib/utils-financing";
+import { useTrackView } from "@/hooks/use-track-view";
 import { notFound } from "next/navigation";
-import { Loader2, GraduationCap, DollarSign, Plane } from "lucide-react";
+import {
+  Loader2,
+  GraduationCap,
+  DollarSign,
+  Plane,
+  ArrowLeft,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -44,212 +55,42 @@ export default function SchoolPage() {
   });
 
   // Track profile view on mount
-  useEffect(() => {
-    if (id) {
-      // Log view event (fire and forget)
-      fetch("/api/events/view", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ schoolId: id }),
-      }).catch((err) => {
-        // Silently fail - view tracking should not block the page
-        console.error("Failed to track view:", err);
-      });
-    }
-  }, [id]);
+  useTrackView(id);
 
   // Organize facts by category (get latest fact per key)
   // This hook must always run, even if data is not available yet
-  const organizedFacts = useMemo(() => {
-    if (!data?.facts) {
-      return {
-        programs: [],
-        costBand: undefined,
-        costNotes: undefined,
-        fleetAircraft: undefined,
-        fleetCount: undefined,
-        airportCode: undefined,
-        address: undefined,
-        email: undefined,
-        phone: undefined,
-        rating: undefined,
-        ratingCount: undefined,
-        photos: undefined,
-      };
-    }
-
-    const facts = data.facts;
-    const latestFactsByKey = new Map<string, (typeof facts)[0]>();
-    for (const fact of facts) {
-      if (!latestFactsByKey.has(fact.factKey) || !fact.isStale) {
-        latestFactsByKey.set(fact.factKey, fact);
-      }
-    }
-
-    // Extract facts by category
-    const programs: string[] = [];
-    const programFacts = Array.from(latestFactsByKey.values()).filter(
-      (f) => f.factKey === FACT_KEYS.PROGRAM_TYPE
-    );
-    for (const fact of programFacts) {
-      const value = fact.factValue;
-      if (typeof value === "string" && value.length > 0) {
-        programs.push(value);
-      }
-    }
-
-    const costBandFact = latestFactsByKey.get(FACT_KEYS.COST_BAND);
-    const costNotesFact = latestFactsByKey.get(FACT_KEYS.COST_NOTES);
-    const costBand =
-      costBandFact && typeof costBandFact.factValue === "string"
-        ? costBandFact.factValue
-        : undefined;
-    const costNotes =
-      costNotesFact && typeof costNotesFact.factValue === "string"
-        ? costNotesFact.factValue
-        : undefined;
-
-    const fleetAircraftFact = latestFactsByKey.get(FACT_KEYS.FLEET_AIRCRAFT);
-    const fleetCountFact = latestFactsByKey.get(FACT_KEYS.FLEET_COUNT);
-    const fleetAircraft =
-      fleetAircraftFact && Array.isArray(fleetAircraftFact.factValue)
-        ? (fleetAircraftFact.factValue as string[])
-        : undefined;
-    const fleetCount =
-      fleetCountFact && typeof fleetCountFact.factValue === "number"
-        ? fleetCountFact.factValue
-        : undefined;
-
-    const airportCodeFact = latestFactsByKey.get(
-      FACT_KEYS.LOCATION_AIRPORT_CODE
-    );
-    const addressFact = latestFactsByKey.get(FACT_KEYS.LOCATION_ADDRESS);
-    const airportCode =
-      airportCodeFact && typeof airportCodeFact.factValue === "string"
-        ? airportCodeFact.factValue
-        : undefined;
-    const address =
-      addressFact && typeof addressFact.factValue === "string"
-        ? addressFact.factValue
-        : undefined;
-
-    const emailFact = latestFactsByKey.get(FACT_KEYS.CONTACT_EMAIL);
-    const phoneFact = latestFactsByKey.get(FACT_KEYS.CONTACT_PHONE);
-    const email =
-      emailFact && typeof emailFact.factValue === "string"
-        ? emailFact.factValue
-        : undefined;
-    const phone =
-      phoneFact && typeof phoneFact.factValue === "string"
-        ? phoneFact.factValue
-        : undefined;
-
-    const ratingFact = latestFactsByKey.get(FACT_KEYS.RATING);
-    const ratingCountFact = latestFactsByKey.get(FACT_KEYS.RATING_COUNT);
-    const rating =
-      ratingFact && typeof ratingFact.factValue === "number"
-        ? ratingFact.factValue
-        : undefined;
-    const ratingCount =
-      ratingCountFact && typeof ratingCountFact.factValue === "number"
-        ? ratingCountFact.factValue
-        : undefined;
-
-    const photosFact = latestFactsByKey.get(FACT_KEYS.PHOTOS);
-    const photos = photosFact
-      ? extractPhotoUrls(photosFact.factValue)
-      : undefined;
-
-    const openingHoursFact = latestFactsByKey.get(FACT_KEYS.OPENING_HOURS);
-    const openingHours =
-      openingHoursFact && typeof openingHoursFact.factValue === "object"
-        ? (openingHoursFact.factValue as {
-            openNow?: boolean;
-            periods?: Array<{
-              open: { day: number; hour: number; minute: number };
-              close: { day: number; hour: number; minute: number };
-            }>;
-            weekdayText?: string[];
-          })
-        : undefined;
-
-    return {
-      programs,
-      costBand,
-      costNotes,
-      fleetAircraft,
-      fleetCount,
-      airportCode,
-      address,
-      email,
-      phone,
-      rating,
-      ratingCount,
-      photos,
-      openingHours,
-    };
-  }, [data?.facts]);
+  const organizedFacts = useMemo(
+    () => organizeFactsByCategory(data?.facts),
+    [data?.facts]
+  );
 
   // Extract financing info from snapshot
-  const financingInfo = useMemo(() => {
-    if (!data?.latestSnapshot?.rawJson) {
-      return null;
-    }
-    const snapshotData = data.latestSnapshot.rawJson as Record<string, unknown>;
-    // Check both 'financing' and 'financingAvailable' fields
-    const financing =
-      typeof snapshotData.financing === "boolean"
-        ? snapshotData.financing
-        : typeof snapshotData.financingAvailable === "boolean"
-        ? snapshotData.financingAvailable
-        : null;
-
-    return financing === true
-      ? {
-          available: true,
-          url:
-            typeof snapshotData.financingUrl === "string"
-              ? snapshotData.financingUrl
-              : null,
-          types: Array.isArray(snapshotData.financingTypes)
-            ? (snapshotData.financingTypes as string[])
-            : [],
-        }
-      : null;
-  }, [data?.latestSnapshot]);
+  const financingInfo = useMemo(
+    () => extractFinancingInfo(data?.latestSnapshot),
+    [data?.latestSnapshot]
+  );
 
   const handleFinancingIntent = async () => {
     setIsSubmitting(true);
     setSubmitSuccess(false);
 
-    try {
-      const response = await fetch("/api/financing/intent", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ schoolId: id }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to submit financing intent");
-      }
-
-      setSubmitSuccess(true);
-      // Close modal after 2 seconds
-      setTimeout(() => {
-        setIsModalOpen(false);
-        setSubmitSuccess(false);
-      }, 2000);
-    } catch (error) {
-      console.error("Error submitting financing intent:", error);
-      // TODO(question): Should we show an error message to the user?
-    } finally {
-      setIsSubmitting(false);
-    }
+    await submitFinancingIntent(id, {
+      onSuccess: () => {
+        setSubmitSuccess(true);
+        // Close modal after 2 seconds
+        setTimeout(() => {
+          setIsModalOpen(false);
+          setSubmitSuccess(false);
+        }, 2000);
+      },
+      onError: () => {
+        // Error is already logged in submitFinancingIntent
+        // TODO(question): Should we show an error message to the user?
+      },
+      onFinally: () => {
+        setIsSubmitting(false);
+      },
+    });
   };
 
   // Now we can do conditional checks and early returns
@@ -265,13 +106,13 @@ export default function SchoolPage() {
         </div>
         <div className="container mx-auto px-4 pb-12">
           <div className="max-w-7xl mx-auto">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2 space-y-4">
                 <Skeleton className="h-48 w-full" />
                 <Skeleton className="h-48 w-full" />
                 <Skeleton className="h-48 w-full" />
               </div>
-              <div className="space-y-6">
+              <div className="space-y-4">
                 <Skeleton className="h-64 w-full" />
                 <Skeleton className="h-64 w-full" />
               </div>
@@ -297,8 +138,18 @@ export default function SchoolPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Back Button */}
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8">
+        <Link href="/search">
+          <Button variant="ghost" size="sm" className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Search
+          </Button>
+        </Link>
+      </div>
+
       {/* Hero Section */}
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8 pb-8 sm:pb-12">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8 sm:pb-12">
         <SchoolHero
           school={school}
           facts={{
@@ -328,7 +179,7 @@ export default function SchoolPage() {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 pb-20">
         <div className="max-w-7xl mx-auto">
           {/* Two-column layout for facts */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-10">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Left column - Main facts */}
             <div className="lg:col-span-2">
               {/* Quick Facts Grid - Show key info at a glance */}
@@ -427,7 +278,7 @@ export default function SchoolPage() {
               )}
 
               {/* Detailed Information Sections */}
-              <div className="space-y-8">
+              <div className="space-y-4">
                 {/* Programs - Full List */}
                 {organizedFacts.programs.length > 0 && (
                   <ProgramsSection programs={organizedFacts.programs} />
@@ -450,34 +301,14 @@ export default function SchoolPage() {
                   />
                 )}
               </div>
-
-              {/* Location & Hours */}
-              <div className="space-y-8">
-                {(() => {
-                  const hasLocation =
-                    organizedFacts.airportCode ||
-                    organizedFacts.address ||
-                    (school.addrStd && typeof school.addrStd === "object");
-                  return hasLocation ? (
-                    <LocationSection
-                      school={school}
-                      airportCode={organizedFacts.airportCode}
-                      address={organizedFacts.address}
-                    />
-                  ) : null;
-                })()}
-
-                {organizedFacts.openingHours && (
-                  <OpeningHoursSection
-                    openNow={organizedFacts.openingHours.openNow}
-                    periods={organizedFacts.openingHours.periods}
-                    weekdayText={organizedFacts.openingHours.weekdayText}
-                  />
+              <div className="space-y-4">
+                {/* School Details from Scraped Data */}
+                {latestSnapshot && (
+                  <SchoolDetailsSection snapshot={latestSnapshot} />
                 )}
-              </div>
 
-              {/* Media & Additional Data */}
-              <div className="space-y-8">
+                {/* Media & Additional Data */}
+
                 {organizedFacts.photos && organizedFacts.photos.length > 0 && (
                   <PhotosGallery
                     photos={organizedFacts.photos}
@@ -491,13 +322,23 @@ export default function SchoolPage() {
               </div>
             </div>
 
-            {/* Right column - Contact and Evidence */}
-            <div className="space-y-8">
-              <ContactSection
+            {/* Right column - Location, Contact, Hours, and Evidence */}
+            <div className="space-y-4">
+              <LocationContactSection
                 school={school}
+                airportCode={organizedFacts.airportCode}
+                address={organizedFacts.address}
                 email={organizedFacts.email}
                 phone={organizedFacts.phone}
               />
+
+              {organizedFacts.openingHours && (
+                <OpeningHoursSection
+                  openNow={organizedFacts.openingHours.openNow}
+                  periods={organizedFacts.openingHours.periods}
+                  weekdayText={organizedFacts.openingHours.weekdayText}
+                />
+              )}
 
               {/* <div id="contact-form">
                 <ContactForm schoolId={school.id} />

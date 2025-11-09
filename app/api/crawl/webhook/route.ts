@@ -7,8 +7,8 @@ import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
 // Route config to ensure raw body is available for signature verification
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * Verify webhook signature from Firecrawl
@@ -86,31 +86,51 @@ export async function POST(req: Request) {
   try {
     // Log request info for debugging (only in production to help diagnose issues)
     const isProduction = process.env.NODE_ENV === "production";
+
+    // Log all headers in production for debugging
+    const headers: Record<string, string> = {};
+    req.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
     if (isProduction) {
-      const headers: Record<string, string> = {};
-      req.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-      console.log("[Webhook] Request headers:", JSON.stringify(headers, null, 2));
+      console.log(
+        "[Webhook] Request headers:",
+        JSON.stringify(headers, null, 2)
+      );
     }
 
     // Read raw body for signature verification
+    // Note: On Vercel, the body might be pre-parsed, so we need to reconstruct it
     const rawBody = await req.text();
+
+    // Log body info for debugging
+    if (isProduction) {
+      console.log("[Webhook] Raw body length:", rawBody.length);
+      console.log(
+        "[Webhook] Raw body first 200 chars:",
+        rawBody.substring(0, 200)
+      );
+      console.log("[Webhook] Content-Type:", req.headers.get("content-type"));
+    }
+
     const body = JSON.parse(rawBody);
 
     // Verify webhook signature - check multiple possible header names
-    const signature = 
+    const signature =
       req.headers.get("X-Firecrawl-Signature") ||
       req.headers.get("x-firecrawl-signature") ||
       req.headers.get("firecrawl-signature") ||
       req.headers.get("X-Signature");
-    
+
     const webhookSecret = process.env.FIRECRAWL_WEBHOOK_SECRET;
 
-    // In development, allow bypassing signature verification for testing
+    // Allow bypassing signature verification for testing/debugging
+    // In development: SKIP_WEBHOOK_SIGNATURE=true
+    // In production (temporary): FORCE_SKIP_WEBHOOK_SIGNATURE=true (use with caution!)
     const isDevelopment = process.env.NODE_ENV === "development";
     const skipSignatureCheck =
-      isDevelopment && process.env.SKIP_WEBHOOK_SIGNATURE === "true";
+      (isDevelopment && process.env.SKIP_WEBHOOK_SIGNATURE === "true") ||
+      process.env.FORCE_SKIP_WEBHOOK_SIGNATURE === "true";
 
     if (!skipSignatureCheck) {
       if (!webhookSecret) {
@@ -124,33 +144,75 @@ export async function POST(req: Request) {
         );
       }
 
-      if (!verifyWebhookSignature(rawBody, signature, webhookSecret)) {
-        console.error("[Webhook] Invalid signature");
+      // Try verifying with the raw body as-is
+      let isValid = verifyWebhookSignature(rawBody, signature, webhookSecret);
+
+      // If verification fails, try with re-stringified body (in case body was modified)
+      if (!isValid && isProduction) {
+        console.log(
+          "[Webhook] First verification attempt failed, trying with re-stringified body..."
+        );
+        const reStringifiedBody = JSON.stringify(body);
+        isValid = verifyWebhookSignature(
+          reStringifiedBody,
+          signature,
+          webhookSecret
+        );
+        if (isValid) {
+          console.log(
+            "[Webhook] Verification succeeded with re-stringified body"
+          );
+        }
+      }
+
+      if (!isValid) {
+        console.error("[Webhook] Invalid signature after all attempts");
         console.error(
           "[Webhook] Received signature:",
           signature ? `${signature.substring(0, 20)}...` : "none"
         );
         console.error(
-          "[Webhook] Raw body length:",
-          rawBody.length
+          "[Webhook] Signature full length:",
+          signature ? signature.length : 0
+        );
+        console.error("[Webhook] Raw body length:", rawBody.length);
+        console.error("[Webhook] Webhook secret configured:", !!webhookSecret);
+        console.error(
+          "[Webhook] Webhook secret length:",
+          webhookSecret ? webhookSecret.length : 0
         );
         console.error(
-          "[Webhook] Webhook secret configured:",
-          !!webhookSecret
-        );
-        if (isProduction) {
-          console.error(
-            "[Webhook] All signature-related headers:",
-            JSON.stringify({
+          "[Webhook] All signature-related headers:",
+          JSON.stringify(
+            {
               "X-Firecrawl-Signature": req.headers.get("X-Firecrawl-Signature"),
               "x-firecrawl-signature": req.headers.get("x-firecrawl-signature"),
               "firecrawl-signature": req.headers.get("firecrawl-signature"),
               "X-Signature": req.headers.get("X-Signature"),
-            }, null, 2)
+            },
+            null,
+            2
+          )
+        );
+
+        // Compute expected signature for comparison (first 20 chars only for security)
+        try {
+          const hmac = crypto.createHmac("sha256", webhookSecret);
+          hmac.update(rawBody);
+          const expectedHex = hmac.digest("hex");
+          console.error(
+            "[Webhook] Expected signature (hex, first 20 chars):",
+            expectedHex.substring(0, 20)
           );
+        } catch (e) {
+          console.error("[Webhook] Error computing expected signature:", e);
         }
+
         console.error(
           "[Webhook] Tip: In development, set SKIP_WEBHOOK_SIGNATURE=true to bypass signature check"
+        );
+        console.error(
+          "[Webhook] Tip: In production (temporary), set FORCE_SKIP_WEBHOOK_SIGNATURE=true to bypass (use with caution!)"
         );
         return NextResponse.json(
           { error: "Invalid signature" },
@@ -160,9 +222,10 @@ export async function POST(req: Request) {
         console.log("[Webhook] Signature verified successfully");
       }
     } else {
-      console.log(
-        "[Webhook] Skipping signature verification (development mode)"
-      );
+      const skipReason = isDevelopment
+        ? "development mode"
+        : "FORCE_SKIP_WEBHOOK_SIGNATURE is set";
+      console.log(`[Webhook] Skipping signature verification (${skipReason})`);
     }
 
     // Log the full payload for debugging

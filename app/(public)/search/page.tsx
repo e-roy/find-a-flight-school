@@ -11,20 +11,29 @@ import { Card, CardContent } from "@/components/ui/card";
 
 // Schema for parsing URL search params (all values come as strings)
 const SearchParamsSchema = z.object({
-  programs: z.string().optional().transform((val) => {
-    if (!val) return undefined;
-    return val.split(",").filter(Boolean);
-  }),
+  programs: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val.split(",").filter(Boolean);
+    }),
   budgetBand: z.string().optional(),
-  aircraft: z.string().optional().transform((val) => {
-    if (!val) return undefined;
-    return val.split(",").filter(Boolean);
-  }),
-  radiusKm: z.string().optional().transform((val) => {
-    if (!val) return undefined;
-    const num = Number(val);
-    return isNaN(num) ? undefined : num;
-  }),
+  aircraft: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val.split(",").filter(Boolean);
+    }),
+  radiusKm: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      const num = Number(val);
+      return isNaN(num) ? undefined : num;
+    }),
   city: z.string().optional(),
 });
 
@@ -62,7 +71,10 @@ function SearchPageContent() {
       }
     }
 
-    if (parsed.data.budgetBand && ["LOW", "MID", "HIGH"].includes(parsed.data.budgetBand)) {
+    if (
+      parsed.data.budgetBand &&
+      ["LOW", "MID", "HIGH"].includes(parsed.data.budgetBand)
+    ) {
       result.budgetBand = parsed.data.budgetBand as MatchRequest["budgetBand"];
     }
 
@@ -84,7 +96,8 @@ function SearchPageContent() {
   }, [urlFilters]);
 
   // Fetch search results
-  const { data: schools, isLoading } = trpc.marketplace.search.query.useQuery(queryInput);
+  const { data: schools, isLoading } =
+    trpc.marketplace.search.query.useQuery(queryInput);
 
   // Update URL when filters change
   const handleFiltersChange = (newFilters: Partial<MatchRequest>) => {
@@ -119,7 +132,8 @@ function SearchPageContent() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Search Flight Schools</h1>
         <p className="text-muted-foreground">
-          Use the filters below to find flight schools that match your preferences
+          Use the filters below to find flight schools that match your
+          preferences
         </p>
       </div>
 
@@ -128,20 +142,26 @@ function SearchPageContent() {
         <div className="lg:col-span-1">
           <Card>
             <CardContent className="pt-6">
-              <SearchFilters filters={urlFilters} onFiltersChange={handleFiltersChange} />
+              <SearchFilters
+                filters={urlFilters}
+                onFiltersChange={handleFiltersChange}
+              />
             </CardContent>
           </Card>
+
+          <div className="my-4 text-sm text-muted-foreground">
+            {isLoading
+              ? "Searching..."
+              : schools
+              ? `Found ${schools.length} ${
+                  schools.length === 1 ? "school" : "schools"
+                }`
+              : "No results"}
+          </div>
         </div>
 
         {/* Results Area */}
         <div className="lg:col-span-3">
-          <div className="mb-4 text-sm text-muted-foreground">
-            {isLoading
-              ? "Searching..."
-              : schools
-                ? `Found ${schools.length} ${schools.length === 1 ? "school" : "schools"}`
-                : "No results"}
-          </div>
           <ResultsList schools={schools} isLoading={isLoading} />
         </div>
       </div>
