@@ -12,10 +12,6 @@ export const SeedRowSchema = z.object({
 
 export type SeedRow = z.infer<typeof SeedRowSchema>;
 
-export const ResolveQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-});
-
 export const CrawlEnqueueQuerySchema = z.object({
   school_id: z.string().min(1, "school_id is required"),
 });

@@ -111,14 +111,24 @@ export function normalizeName(name: string): string {
 function normalizeAddress(
   city: string | null,
   state: string | null,
-  country: string | null
-): { city: string; state: string | null; country: string | null } | null {
+  country: string | null,
+  streetAddress?: string | null,
+  postalCode?: string | null
+): {
+  city: string;
+  state: string | null;
+  country: string | null;
+  streetAddress?: string | null;
+  postalCode?: string | null;
+} | null {
   if (!city) return null;
 
   return {
     city: city.trim(),
     state: state?.trim() || null,
     country: country?.trim() || null,
+    streetAddress: streetAddress?.trim() || null,
+    postalCode: postalCode?.trim() || null,
   };
 }
 
@@ -305,7 +315,13 @@ export async function promoteCandidateToSchool(candidateId: string): Promise<{
           observedDomain: domain,
           observedName: seed.name,
           observedPhone: seed.phone,
-          observedAddr: normalizeAddress(seed.city, seed.state, seed.country),
+          observedAddr: normalizeAddress(
+            seed.city,
+            seed.state,
+            seed.country,
+            seed.streetAddress,
+            seed.postalCode
+          ),
           collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
         });
 
@@ -315,7 +331,13 @@ export async function promoteCandidateToSchool(candidateId: string): Promise<{
 
     // Create new school
     const schoolId = crypto.randomUUID();
-    const addrStd = normalizeAddress(seed.city, seed.state, seed.country);
+    const addrStd = normalizeAddress(
+      seed.city,
+      seed.state,
+      seed.country,
+      seed.streetAddress,
+      seed.postalCode
+    );
 
     await db.insert(schools).values({
       id: schoolId,
@@ -397,17 +419,17 @@ export async function getCandidateClusters(): Promise<
     // Only include clusters with multiple candidates
     if (group.length > 1) {
       const best = selectBestCandidate(group);
-      
+
       // Determine merge reason
       let mergeReason = "similarity";
       const phone1 = normalizePhone(candidate.phone);
       const domain1 = extractDomain(candidate.website);
-      
+
       for (const other of group) {
         if (other.id === candidate.id) continue;
         const phone2 = normalizePhone(other.phone);
         const domain2 = extractDomain(other.website);
-        
+
         if (phone1 && phone2 && phone1 === phone2) {
           mergeReason = "phone_match";
           break;

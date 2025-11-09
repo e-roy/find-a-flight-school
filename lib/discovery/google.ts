@@ -24,6 +24,14 @@ export interface Candidate {
   lat: number;
   lng: number;
   placeId?: string;
+  rating?: number;
+  userRatingCount?: number;
+  businessStatus?: string;
+  priceLevel?: string;
+  regularOpeningHours?: any;
+  currentOpeningHours?: any;
+  photos?: Array<{ name: string; widthPx?: number; heightPx?: number }>;
+  addressComponents?: any[];
 }
 
 export interface SearchParams {
@@ -106,7 +114,7 @@ async function searchPlaces(
 
   try {
     const fieldMask =
-      "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.location,places.id";
+      "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.location,places.id,places.rating,places.userRatingCount,places.businessStatus,places.priceLevel,places.regularOpeningHours,places.currentOpeningHours,places.photos,places.addressComponents";
 
     let response: Response;
 
@@ -212,6 +220,45 @@ async function searchPlaces(
 
       if (place.websiteUri) {
         candidate.website = place.websiteUri;
+      }
+
+      if (place.rating !== undefined && place.rating !== null) {
+        candidate.rating = place.rating;
+      }
+
+      if (
+        place.userRatingCount !== undefined &&
+        place.userRatingCount !== null
+      ) {
+        candidate.userRatingCount = place.userRatingCount;
+      }
+
+      if (place.businessStatus) {
+        candidate.businessStatus = place.businessStatus;
+      }
+
+      if (place.priceLevel !== undefined && place.priceLevel !== null) {
+        candidate.priceLevel = place.priceLevel;
+      }
+
+      if (place.regularOpeningHours) {
+        candidate.regularOpeningHours = place.regularOpeningHours;
+      }
+
+      if (place.currentOpeningHours) {
+        candidate.currentOpeningHours = place.currentOpeningHours;
+      }
+
+      if (place.photos && Array.isArray(place.photos)) {
+        candidate.photos = place.photos.map((photo: any) => ({
+          name: photo.name || "",
+          widthPx: photo.widthPx,
+          heightPx: photo.heightPx,
+        }));
+      }
+
+      if (place.addressComponents && Array.isArray(place.addressComponents)) {
+        candidate.addressComponents = place.addressComponents;
       }
 
       return candidate;

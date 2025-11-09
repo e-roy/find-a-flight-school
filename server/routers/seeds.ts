@@ -6,7 +6,6 @@ import { schools } from "@/db/schema/schools";
 import { sources } from "@/db/schema/sources";
 import { crawlQueue } from "@/db/schema/crawl_queue";
 import { desc, or, ilike, eq, and, isNotNull } from "drizzle-orm";
-import { resolveDomain } from "@/lib/resolver";
 import { hasRole } from "@/lib/rbac";
 import { search } from "@/lib/discovery/google";
 import type { Candidate } from "@/lib/discovery/google";
@@ -75,14 +74,102 @@ function extractDomain(website: string | null): string | null {
 function normalizeAddress(
   city: string | null,
   state: string | null,
-  country: string | null
-): { city: string; state: string | null; country: string | null } | null {
+  country: string | null,
+  streetAddress?: string | null,
+  postalCode?: string | null
+): {
+  city: string;
+  state: string | null;
+  country: string | null;
+  streetAddress?: string | null;
+  postalCode?: string | null;
+} | null {
   if (!city) return null;
 
   return {
     city: city.trim(),
     state: state?.trim() || null,
     country: country?.trim() || null,
+    streetAddress: streetAddress?.trim() || null,
+    postalCode: postalCode?.trim() || null,
+  };
+}
+
+/**
+ * Parse address from Google Places addressComponents
+ * Google provides structured address data, so we rely on it exclusively
+ */
+function parseAddressFromComponents(addressComponents: any[] | undefined): {
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  streetAddress: string | null;
+  postalCode: string | null;
+} {
+  let city: string | null = null;
+  let state: string | null = null;
+  let country: string | null = null;
+  let streetNumber: string | null = null;
+  let route: string | null = null;
+  let postalCode: string | null = null;
+
+  // Use Google's structured addressComponents (already parsed by Google)
+  if (addressComponents && Array.isArray(addressComponents)) {
+    for (const component of addressComponents) {
+      const types = component.types || [];
+      // Google Places API (New) uses longText and shortText
+      const longName = component.longText || component.longName || "";
+      const shortName = component.shortText || component.shortName || "";
+
+      // Extract street number
+      if (!streetNumber && types.includes("street_number")) {
+        streetNumber = longName || shortName || null;
+      }
+
+      // Extract route (street name)
+      if (!route && types.includes("route")) {
+        route = longName || shortName || null;
+      }
+
+      // Extract city (locality or sublocality)
+      if (
+        !city &&
+        (types.includes("locality") || types.includes("sublocality"))
+      ) {
+        city = longName || shortName || null;
+      }
+
+      // Extract state (administrative_area_level_1)
+      if (!state && types.includes("administrative_area_level_1")) {
+        // Prefer short name for state codes (e.g., "TX" instead of "Texas")
+        state = shortName || longName || null;
+      }
+
+      // Extract country
+      if (!country && types.includes("country")) {
+        // Prefer short name for country codes (e.g., "US" instead of "United States")
+        country = shortName || longName || null;
+      }
+
+      // Extract postal code
+      if (!postalCode && types.includes("postal_code")) {
+        postalCode = shortName || longName || null;
+      }
+    }
+  }
+
+  // Combine street number and route into street address
+  const streetAddress =
+    streetNumber && route
+      ? `${streetNumber} ${route}`.trim()
+      : streetNumber || route || null;
+
+  return {
+    city: city || null,
+    state: state || null,
+    country: country || null,
+    streetAddress,
+    postalCode: postalCode || null,
   };
 }
 
@@ -140,69 +227,6 @@ export const seedsRouter = router({
         )
         .orderBy(desc(seedCandidates.createdAt))
         .limit(100);
-    }),
-  rerunResolver: protectedProcedure
-    .input(z.object({ seedId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const seed = await ctx.db.query.seedCandidates.findFirst({
-        where: (q, { eq }) => eq(q.id, input.seedId),
-      });
-
-      if (!seed) {
-        throw new Error("Seed candidate not found");
-      }
-
-      const resolveResult = await resolveDomain({
-        name: seed.name,
-        city: seed.city ?? undefined,
-        state: seed.state ?? undefined,
-        phone: seed.phone ?? undefined,
-      });
-
-      const updateData: {
-        website?: string | null;
-        resolutionMethod: string;
-        confidence: number;
-        evidenceJson: unknown;
-        lastSeenAt: Date;
-        updatedAt: Date;
-      } = {
-        resolutionMethod: "pattern_match",
-        confidence: resolveResult.confidence,
-        evidenceJson: resolveResult.evidence,
-        lastSeenAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      if (resolveResult.domain) {
-        updateData.website = resolveResult.domain;
-      }
-
-      // Only update if new confidence is better or existing is null
-      if (
-        seed.confidence === null ||
-        resolveResult.confidence > seed.confidence
-      ) {
-        await ctx.db
-          .update(seedCandidates)
-          .set(updateData)
-          .where(eq(seedCandidates.id, input.seedId));
-      } else {
-        // Still update last_seen_at even if confidence didn't improve
-        await ctx.db
-          .update(seedCandidates)
-          .set({
-            lastSeenAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(seedCandidates.id, input.seedId));
-      }
-
-      return {
-        ok: true,
-        domain: resolveResult.domain,
-        confidence: resolveResult.confidence,
-      };
     }),
   discover: isAdmin
     .input(
@@ -437,6 +461,22 @@ export const seedsRouter = router({
         lat: z.number(),
         lng: z.number(),
         placeId: z.string().optional(),
+        rating: z.number().optional(),
+        userRatingCount: z.number().optional(),
+        businessStatus: z.string().optional(),
+        priceLevel: z.string().optional(),
+        regularOpeningHours: z.any().optional(),
+        currentOpeningHours: z.any().optional(),
+        photos: z
+          .array(
+            z.object({
+              name: z.string(),
+              widthPx: z.number().optional(),
+              heightPx: z.number().optional(),
+            })
+          )
+          .optional(),
+        addressComponents: z.any().optional(),
         queryParams: z
           .object({
             city: z.string().optional(),
@@ -457,18 +497,9 @@ export const seedsRouter = router({
         });
       }
 
-      // Extract city/state/country from address
-      let city: string | null = null;
-      let state: string | null = null;
-      let country: string | null = null;
-
-      if (input.address) {
-        // Simple parsing: assume format like "City, State, Country" or "City, State"
-        const parts = input.address.split(",").map((p) => p.trim());
-        if (parts.length >= 1) city = parts[0] || null;
-        if (parts.length >= 2) state = parts[1] || null;
-        if (parts.length >= 3) country = parts[2] || null;
-      }
+      // Extract city/state/country/street/postal from address using Google's structured addressComponents
+      const { city, state, country, streetAddress, postalCode } =
+        parseAddressFromComponents(input.addressComponents);
 
       // Normalize domain
       const normalizeDomain = (website: string | undefined): string | null => {
@@ -509,6 +540,14 @@ export const seedsRouter = router({
           website: input.website,
           lat: input.lat,
           lng: input.lng,
+          rating: input.rating,
+          userRatingCount: input.userRatingCount,
+          businessStatus: input.businessStatus,
+          priceLevel: input.priceLevel,
+          regularOpeningHours: input.regularOpeningHours,
+          currentOpeningHours: input.currentOpeningHours,
+          photos: input.photos,
+          addressComponents: input.addressComponents,
         },
       };
 
@@ -519,10 +558,19 @@ export const seedsRouter = router({
         city,
         state,
         country,
+        streetAddress: streetAddress || null,
+        postalCode: postalCode || null,
         phone: input.phone || null,
         website: normalizedWebsite,
         resolutionMethod: normalizedWebsite ? "manual" : null,
-        confidence: normalizedWebsite ? 1 : null,
+        confidence: 1,
+        rating: input.rating ?? null,
+        userRatingCount: input.userRatingCount ?? null,
+        businessStatus: input.businessStatus ?? null,
+        priceLevel: input.priceLevel ?? null,
+        photos: input.photos ? (input.photos as any) : null,
+        regularOpeningHours: input.regularOpeningHours ?? null,
+        currentOpeningHours: input.currentOpeningHours ?? null,
         evidenceJson,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -556,132 +604,72 @@ export const seedsRouter = router({
           });
         }
 
-        // Resolve domain if missing
-        let domain = extractDomain(seed.website);
-        if (!domain) {
-          const resolveResult = await resolveDomain({
-            name: seed.name,
-            city: seed.city ?? undefined,
-            state: seed.state ?? undefined,
-            phone: seed.phone ?? undefined,
+        // Require website - Google Places discovery should provide this
+        if (!seed.website) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Seed candidate must have a website to be promoted. Use Google Places discovery to import seeds with website data.",
           });
+        }
 
-          if (resolveResult.domain) {
-            domain = resolveResult.domain;
-            // Update seed with resolved domain
-            await ctx.db
-              .update(seedCandidates)
-              .set({
-                website: domain,
-                resolutionMethod: "pattern_match",
-                confidence: resolveResult.confidence,
-                evidenceJson: resolveResult.evidence,
-                updatedAt: new Date(),
-              })
-              .where(eq(seedCandidates.id, input.seedId));
-          }
+        // Extract domain from website
+        const domain = extractDomain(seed.website);
+        if (!domain) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Seed candidate website is invalid or could not be parsed",
+          });
         }
 
         // Check for existing school by domain (dedupe check)
         let schoolId: string;
         let queueId: string | null = null;
 
-        if (domain) {
-          const existingSchool = await ctx.db
-            .select()
-            .from(schools)
-            .where(eq(schools.domain, domain))
-            .limit(1);
+        const existingSchool = await ctx.db
+          .select()
+          .from(schools)
+          .where(eq(schools.domain, domain))
+          .limit(1);
 
-          if (existingSchool.length > 0) {
-            // School already exists, just create source record
-            schoolId = existingSchool[0].id;
-            const sourceId = crypto.randomUUID();
-            await ctx.db.insert(sources).values({
-              id: sourceId,
-              schoolId,
-              sourceType: "PLACES",
-              sourceRef: seed.id,
-              observedDomain: domain,
-              observedName: seed.name,
-              observedPhone: seed.phone,
-              observedAddr: normalizeAddress(
-                seed.city,
-                seed.state,
-                seed.country
-              ),
-              collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
-            });
-          } else {
-            // Create new school
-            schoolId = crypto.randomUUID();
-            const addrStd = normalizeAddress(
+        if (existingSchool.length > 0) {
+          // School already exists, just create source record
+          schoolId = existingSchool[0].id;
+          const sourceId = crypto.randomUUID();
+          await ctx.db.insert(sources).values({
+            id: sourceId,
+            schoolId,
+            sourceType: "PLACES",
+            sourceRef: seed.id,
+            observedDomain: domain,
+            observedName: seed.name,
+            observedPhone: seed.phone,
+            observedAddr: normalizeAddress(
               seed.city,
               seed.state,
-              seed.country
-            );
-
-            await ctx.db.insert(schools).values({
-              id: schoolId,
-              canonicalName: seed.name,
-              addrStd,
-              phone: seed.phone,
-              domain,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            });
-
-            // Create source record for lineage
-            const sourceId = crypto.randomUUID();
-            await ctx.db.insert(sources).values({
-              id: sourceId,
-              schoolId,
-              sourceType: "PLACES",
-              sourceRef: seed.id,
-              observedDomain: domain,
-              observedName: seed.name,
-              observedPhone: seed.phone,
-              observedAddr: addrStd,
-              collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
-            });
-          }
-
-          // Enqueue crawl (check for existing pending job first)
-          const existingJob = await ctx.db
-            .select()
-            .from(crawlQueue)
-            .where(
-              and(
-                eq(crawlQueue.schoolId, schoolId),
-                eq(crawlQueue.status, "pending")
-              )
-            )
-            .limit(1);
-
-          if (existingJob.length === 0) {
-            queueId = crypto.randomUUID();
-            await ctx.db.insert(crawlQueue).values({
-              id: queueId,
-              schoolId,
-              domain,
-              status: "pending",
-              attempts: 0,
-              scheduledAt: new Date(),
-            });
-          } else {
-            queueId = existingJob[0].id;
-          }
+              seed.country,
+              seed.streetAddress,
+              seed.postalCode
+            ),
+            collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
+          });
         } else {
-          // No domain available, still create school but don't enqueue crawl
+          // Create new school
           schoolId = crypto.randomUUID();
-          const addrStd = normalizeAddress(seed.city, seed.state, seed.country);
+          const addrStd = normalizeAddress(
+            seed.city,
+            seed.state,
+            seed.country,
+            seed.streetAddress,
+            seed.postalCode
+          );
 
           await ctx.db.insert(schools).values({
             id: schoolId,
             canonicalName: seed.name,
             addrStd,
             phone: seed.phone,
-            domain: null,
+            domain,
             createdAt: new Date(),
             updatedAt: new Date(),
           });
@@ -693,12 +681,38 @@ export const seedsRouter = router({
             schoolId,
             sourceType: "PLACES",
             sourceRef: seed.id,
-            observedDomain: null,
+            observedDomain: domain,
             observedName: seed.name,
             observedPhone: seed.phone,
             observedAddr: addrStd,
             collectedAt: seed.firstSeenAt || seed.createdAt || new Date(),
           });
+        }
+
+        // Enqueue crawl (check for existing pending job first)
+        const existingJob = await ctx.db
+          .select()
+          .from(crawlQueue)
+          .where(
+            and(
+              eq(crawlQueue.schoolId, schoolId),
+              eq(crawlQueue.status, "pending")
+            )
+          )
+          .limit(1);
+
+        if (existingJob.length === 0) {
+          queueId = crypto.randomUUID();
+          await ctx.db.insert(crawlQueue).values({
+            id: queueId,
+            schoolId,
+            domain,
+            status: "pending",
+            attempts: 0,
+            scheduledAt: new Date(),
+          });
+        } else {
+          queueId = existingJob[0].id;
         }
 
         return {

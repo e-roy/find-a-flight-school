@@ -43,7 +43,9 @@ export function DiscoverView() {
   const [importedSeedIds, setImportedSeedIds] = useState<Map<string, string>>(
     new Map()
   ); // candidateId -> seedId
-  const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set());
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(
+    new Set()
+  );
 
   const { data, isLoading, error } = trpc.seeds.discover.useQuery(
     {
@@ -66,6 +68,12 @@ export function DiscoverView() {
     onSuccess: (result, variables) => {
       const candidateId = getCandidateId(variables);
       setImportingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(candidateId);
+        return next;
+      });
+      // Remove from selected set
+      setSelectedCandidateIds((prev) => {
         const next = new Set(prev);
         next.delete(candidateId);
         return next;
@@ -93,38 +101,6 @@ export function DiscoverView() {
         return next;
       });
       toast.error(`Failed to import: ${error.message}`);
-    },
-  });
-
-  const promoteMutation = trpc.seeds.promoteAndQueue.useMutation({
-    onSuccess: (result, variables) => {
-      setPromotingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(variables.seedId);
-        return next;
-      });
-      toast.success(
-        `Successfully promoted and queued${
-          result.queueId ? " (crawl enqueued)" : ""
-        }`
-      );
-      // Refresh existence status for all candidates
-      if (data?.candidates) {
-        data.candidates.forEach((candidate) => {
-          checkExistence(candidate);
-        });
-      }
-      // Invalidate seed list queries
-      utils.seeds.list.invalidate();
-      utils.seeds.search.invalidate();
-    },
-    onError: (error, variables) => {
-      setPromotingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(variables.seedId);
-        return next;
-      });
-      toast.error(`Failed to promote: ${error.message}`);
     },
   });
 
@@ -188,17 +164,20 @@ export function DiscoverView() {
       lat: candidate.lat,
       lng: candidate.lng,
       placeId: candidate.placeId,
+      rating: candidate.rating,
+      userRatingCount: candidate.userRatingCount,
+      businessStatus: candidate.businessStatus,
+      priceLevel: candidate.priceLevel,
+      regularOpeningHours: candidate.regularOpeningHours,
+      currentOpeningHours: candidate.currentOpeningHours,
+      photos: candidate.photos,
+      addressComponents: candidate.addressComponents,
       queryParams: {
         city,
         radiusKm: Number(radiusKm) || 30,
         query: query || undefined,
       },
     });
-  };
-
-  const handlePromote = (seedId: string) => {
-    setPromotingIds((prev) => new Set(prev).add(seedId));
-    promoteMutation.mutate({ seedId });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -229,7 +208,94 @@ export function DiscoverView() {
     setExistenceStatus(new Map());
     setImportingIds(new Set());
     setImportedSeedIds(new Map());
-    setPromotingIds(new Set());
+    setSelectedCandidateIds(new Set());
+  };
+
+  const handleSelectionChange = (candidateId: string, selected: boolean) => {
+    setSelectedCandidateIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(candidateId);
+      } else {
+        next.delete(candidateId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = (selected: boolean) => {
+    if (!data?.candidates) return;
+
+    const importableIds = data.candidates
+      .map((candidate) => getCandidateId(candidate))
+      .filter((candidateId) => {
+        const status = existenceStatus.get(candidateId);
+        return status && !status.existsInSeeds;
+      });
+
+    setSelectedCandidateIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        importableIds.forEach((id) => next.add(id));
+      } else {
+        importableIds.forEach((id) => next.delete(id));
+      }
+      return next;
+    });
+  };
+
+  const getImportableCandidates = (): Candidate[] => {
+    if (!data?.candidates) return [];
+    return data.candidates.filter((candidate) => {
+      const candidateId = getCandidateId(candidate);
+      const status = existenceStatus.get(candidateId);
+      return status && !status.existsInSeeds;
+    });
+  };
+
+  const handleBulkImport = async () => {
+    if (!data?.candidates) return;
+
+    const candidatesToImport = data.candidates.filter((candidate) => {
+      const candidateId = getCandidateId(candidate);
+      return selectedCandidateIds.has(candidateId);
+    });
+
+    if (candidatesToImport.length === 0) {
+      toast.error("No candidates selected");
+      return;
+    }
+
+    // Import candidates sequentially
+    for (const candidate of candidatesToImport) {
+      const candidateId = getCandidateId(candidate);
+      if (importingIds.has(candidateId) || importedSeedIds.has(candidateId)) {
+        continue; // Skip if already importing or imported
+      }
+      handleImport(candidate);
+      // Small delay to avoid overwhelming the API
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+
+  const handleImportAll = async () => {
+    const importableCandidates = getImportableCandidates();
+
+    if (importableCandidates.length === 0) {
+      toast.error("No importable candidates found");
+      return;
+    }
+
+    // Import all importable candidates sequentially
+    for (const candidate of importableCandidates) {
+      const candidateId = getCandidateId(candidate);
+      if (importingIds.has(candidateId) || importedSeedIds.has(candidateId)) {
+        continue; // Skip if already importing or imported
+      }
+      handleImport(candidate);
+      // Small delay to avoid overwhelming the API
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   };
 
   const handleCandidateSelect = (candidate: Candidate) => {
@@ -314,11 +380,52 @@ export function DiscoverView() {
       {data && shouldSearch && (
         <Card>
           <CardHeader>
-            <CardTitle>Results</CardTitle>
-            <CardDescription>
-              Found {data.candidates.length} candidate(s) near{" "}
-              {data.center.lat.toFixed(4)}, {data.center.lng.toFixed(4)}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Results</CardTitle>
+                <CardDescription>
+                  Found {data.candidates.length} candidate(s) near{" "}
+                  {data.center.lat.toFixed(4)}, {data.center.lng.toFixed(4)}
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleBulkImport}
+                  disabled={
+                    selectedCandidateIds.size === 0 ||
+                    importingIds.size > 0 ||
+                    !data.candidates.some((candidate) => {
+                      const candidateId = getCandidateId(candidate);
+                      return (
+                        selectedCandidateIds.has(candidateId) &&
+                        !importingIds.has(candidateId) &&
+                        !importedSeedIds.has(candidateId)
+                      );
+                    })
+                  }
+                >
+                  Import Selected ({selectedCandidateIds.size})
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={handleImportAll}
+                  disabled={
+                    getImportableCandidates().length === 0 ||
+                    importingIds.size > 0 ||
+                    getImportableCandidates().every((candidate) => {
+                      const candidateId = getCandidateId(candidate);
+                      return (
+                        importingIds.has(candidateId) ||
+                        importedSeedIds.has(candidateId)
+                      );
+                    })
+                  }
+                >
+                  Import All ({getImportableCandidates().length})
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {data.candidates.length === 0 ? (
@@ -345,8 +452,9 @@ export function DiscoverView() {
                     onImport={handleImport}
                     importingIds={importingIds}
                     importedSeedIds={importedSeedIds}
-                    onPromote={handlePromote}
-                    promotingIds={promotingIds}
+                    selectedCandidateIds={selectedCandidateIds}
+                    onSelectionChange={handleSelectionChange}
+                    onSelectAll={handleSelectAll}
                   />
                 </div>
               </div>
@@ -357,4 +465,3 @@ export function DiscoverView() {
     </div>
   );
 }
-

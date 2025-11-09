@@ -10,7 +10,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface ExistenceStatus {
@@ -32,8 +37,9 @@ interface ResultsPanelProps {
   onImport?: (candidate: Candidate) => void;
   importingIds?: Set<string>;
   importedSeedIds?: Map<string, string>; // candidateId -> seedId
-  onPromote?: (seedId: string) => void;
-  promotingIds?: Set<string>;
+  selectedCandidateIds?: Set<string>;
+  onSelectionChange?: (candidateId: string, selected: boolean) => void;
+  onSelectAll?: (selected: boolean) => void;
 }
 
 export function ResultsPanel({
@@ -44,8 +50,9 @@ export function ResultsPanel({
   onImport,
   importingIds,
   importedSeedIds,
-  onPromote,
-  promotingIds,
+  selectedCandidateIds = new Set(),
+  onSelectionChange,
+  onSelectAll,
 }: ResultsPanelProps) {
   if (candidates.length === 0) {
     return (
@@ -71,14 +78,6 @@ export function ResultsPanel({
       );
     }
 
-    if (status.existsInSchools) {
-      return (
-        <Badge variant="destructive" className="text-xs">
-          Exists in Schools
-        </Badge>
-      );
-    }
-
     if (status.existsInSeeds) {
       return (
         <Badge variant="secondary" className="text-xs">
@@ -88,38 +87,68 @@ export function ResultsPanel({
     }
 
     return (
-      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
+      <Badge
+        variant="outline"
+        className="text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800"
+      >
         New
       </Badge>
     );
   };
 
+  // Get all importable candidate IDs
+  const getImportableCandidateIds = (): string[] => {
+    return candidates
+      .map((candidate) => getCandidateId(candidate))
+      .filter((candidateId) => {
+        const status = existenceStatus?.get(candidateId);
+        return status && !status.existsInSeeds;
+      });
+  };
+
+  const importableIds = getImportableCandidateIds();
+  const allSelected =
+    importableIds.length > 0 &&
+    importableIds.every((id) => selectedCandidateIds.has(id));
+
   return (
-    <div className="h-full overflow-auto rounded-lg border bg-background">
-      <div className="overflow-x-auto">
+    <div className="h-full flex flex-col rounded-lg border bg-background overflow-hidden">
+      <div className="w-full">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
             <TableRow>
+              {onSelectionChange && (
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={(checked) => {
+                      if (onSelectAll) {
+                        onSelectAll(checked === true);
+                      }
+                    }}
+                    aria-label="Select all"
+                  />
+                </TableHead>
+              )}
               <TableHead>Name</TableHead>
               <TableHead>Address</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Website</TableHead>
+              <TableHead>Rating</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Coordinates</TableHead>
               <TableHead>Exists?</TableHead>
-              {(onImport || onPromote) && <TableHead>Actions</TableHead>}
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="overflow-y-auto">
             {candidates.map((candidate, index) => {
               const candidateId = getCandidateId(candidate);
               const isSelected = selectedCandidateId === candidateId;
               const status = existenceStatus?.get(candidateId);
               const isImporting = importingIds?.has(candidateId);
-              const canImport = status && !status.existsInSchools;
+              const canImport = status && !status.existsInSeeds;
               const seedId = importedSeedIds?.get(candidateId);
               const isImported = !!seedId;
-              const isPromoting = seedId ? promotingIds?.has(seedId) : false;
-              const canPromote = isImported && status && !status.existsInSchools;
 
               return (
                 <TableRow
@@ -130,17 +159,54 @@ export function ResultsPanel({
                     !isSelected && "hover:bg-muted/50"
                   )}
                 >
+                  {onSelectionChange && (
+                    <TableCell
+                      onClick={(e) => e.stopPropagation()}
+                      className="cursor-default"
+                    >
+                      <Checkbox
+                        checked={
+                          isImported || selectedCandidateIds.has(candidateId)
+                        }
+                        onCheckedChange={(checked) => {
+                          if (!isImported && canImport) {
+                            onSelectionChange(candidateId, checked === true);
+                          }
+                        }}
+                        disabled={isImported || !canImport}
+                        aria-label={`Select ${candidate.name}`}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell
-                    className="font-medium cursor-pointer"
+                    className="font-medium cursor-pointer max-w-[200px] whitespace-normal"
                     onClick={() => onCandidateSelect(candidate)}
                   >
-                    {candidate.name}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="truncate">{candidate.name}</div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{candidate.name}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </TableCell>
                   <TableCell
                     onClick={() => onCandidateSelect(candidate)}
-                    className="cursor-pointer"
+                    className="cursor-pointer max-w-[250px] whitespace-normal"
                   >
-                    {candidate.address || "-"}
+                    {candidate.address ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="truncate">{candidate.address}</div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{candidate.address}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      "-"
+                    )}
                   </TableCell>
                   <TableCell
                     onClick={() => onCandidateSelect(candidate)}
@@ -150,18 +216,63 @@ export function ResultsPanel({
                   </TableCell>
                   <TableCell
                     onClick={() => onCandidateSelect(candidate)}
-                    className="cursor-pointer"
+                    className="cursor-pointer max-w-[200px] whitespace-normal"
                   >
                     {candidate.website ? (
-                      <a
-                        href={candidate.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                        onClick={(e) => e.stopPropagation()}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={candidate.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline truncate block"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {candidate.website}
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{candidate.website}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      "-"
+                    )}
+                  </TableCell>
+                  <TableCell
+                    onClick={() => onCandidateSelect(candidate)}
+                    className="cursor-pointer"
+                  >
+                    {candidate.rating !== undefined &&
+                    candidate.rating !== null ? (
+                      <div className="flex items-center gap-1">
+                        <span>{candidate.rating.toFixed(1)}</span>
+                        {candidate.userRatingCount && (
+                          <span className="text-xs text-muted-foreground">
+                            ({candidate.userRatingCount})
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </TableCell>
+                  <TableCell
+                    onClick={() => onCandidateSelect(candidate)}
+                    className="cursor-pointer"
+                  >
+                    {candidate.businessStatus ? (
+                      <span
+                        className={`text-xs px-2 py-1 rounded ${
+                          candidate.businessStatus === "OPERATIONAL"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            : candidate.businessStatus === "CLOSED_PERMANENTLY"
+                            ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                            : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                        }`}
                       >
-                        {candidate.website}
-                      </a>
+                        {candidate.businessStatus.replace(/_/g, " ")}
+                      </span>
                     ) : (
                       "-"
                     )}
@@ -178,35 +289,6 @@ export function ResultsPanel({
                   >
                     {getExistenceBadge(candidateId)}
                   </TableCell>
-                  {(onImport || onPromote) && (
-                    <TableCell
-                      onClick={(e) => e.stopPropagation()}
-                      className="cursor-default"
-                    >
-                      <div className="flex gap-2">
-                        {onImport && !isImported && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={!canImport || isImporting}
-                            onClick={() => onImport(candidate)}
-                          >
-                            {isImporting ? "Importing..." : "Import"}
-                          </Button>
-                        )}
-                        {onPromote && isImported && (
-                          <Button
-                            size="sm"
-                            variant="default"
-                            disabled={!canPromote || isPromoting}
-                            onClick={() => seedId && onPromote(seedId)}
-                          >
-                            {isPromoting ? "Promoting..." : "Promote & Queue"}
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  )}
                 </TableRow>
               );
             })}
