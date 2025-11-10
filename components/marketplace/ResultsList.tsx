@@ -23,6 +23,7 @@ interface ResultsListProps {
           rating?: number;
           ratingCount?: number;
           photos?: string[];
+          financingAvailable?: boolean;
         };
       })[]
     | undefined;
@@ -37,16 +38,23 @@ export function ResultsList({ schools, isLoading }: ResultsListProps) {
           <Card key={i} className="h-full flex flex-col mt-0 pt-0">
             {/* Image skeleton */}
             <Skeleton className="w-full h-48 rounded-t-lg" />
-            <div className="p-4 space-y-3 flex-1">
+            <div className="p-4 space-y-1 flex-1">
               {/* Title skeleton */}
-              <Skeleton className="h-6 w-3/4" />
-              {/* Badges skeleton */}
-              <div className="flex gap-2">
-                <Skeleton className="h-5 w-16" />
-                <Skeleton className="h-5 w-16" />
+              <Skeleton className="h-6 w-3/4 mb-1" />
+              {/* Badges skeleton - fixed height for uniformity */}
+              <div className="min-h-[20px] mb-1">
+                <div className="flex gap-0.5">
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-5 w-16" />
+                </div>
               </div>
-              {/* Rating skeleton */}
-              <Skeleton className="h-4 w-24" />
+              {/* Rating skeleton - fixed height for uniformity */}
+              <div className="min-h-[20px] mb-1">
+                <div className="flex gap-1.5">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-5 w-5" />
+                </div>
+              </div>
               {/* Other info skeleton */}
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-2/3" />

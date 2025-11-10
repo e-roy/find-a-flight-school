@@ -94,6 +94,16 @@ export function SchoolHero({
         </div>
       )}
 
+      {/* Save Button - Top Right */}
+      <div className="absolute top-2 right-2 z-10">
+        <SaveButton
+          schoolId={school.id}
+          variant="ghost"
+          size="icon"
+          className="bg-black/40 hover:bg-black/60 text-white backdrop-blur-md border border-white/30 shadow-lg shadow-black/20"
+        />
+      </div>
+
       {/* Overlay gradient for text readability */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
 
@@ -170,8 +180,6 @@ export function SchoolHero({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-3 flex-wrap pt-2">
-            <SaveButton schoolId={school.id} variant="default" size="default" />
-
             {onFinancingClick && (
               <Button
                 onClick={onFinancingClick}

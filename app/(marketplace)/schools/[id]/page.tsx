@@ -54,6 +54,9 @@ export default function SchoolPage() {
     id: id || "",
   });
 
+  // Get current user's role to check if admin
+  const { data: roleData } = trpc.schools.currentUserRole.useQuery();
+
   // Track profile view on mount
   useTrackView(id);
 
@@ -316,7 +319,7 @@ export default function SchoolPage() {
                   />
                 )}
 
-                {latestSnapshot && (
+                {latestSnapshot && roleData?.role === "admin" && (
                   <ScrapedDataSection snapshot={latestSnapshot} />
                 )}
               </div>
@@ -356,10 +359,20 @@ export default function SchoolPage() {
           <DialogHeader>
             <DialogTitle>Check Financing Options</DialogTitle>
             <DialogDescription>
-              This is a preview flow. We're working on integrating a soft-pull
-              credit check that will help you explore financing options for
-              flight training at this school. The full integration will be
-              available soon.
+              {financingInfo?.url ? (
+                <>
+                  This school has provided financing information on their
+                  website. Click the link below to view their financing options
+                  and application process.
+                </>
+              ) : (
+                <>
+                  This is a preview flow. We&apos;re working on integrating a
+                  soft-pull credit check that will help you explore financing
+                  options for flight training at this school. The full
+                  integration will be available soon.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           {submitSuccess ? (
@@ -369,25 +382,57 @@ export default function SchoolPage() {
               </p>
             </div>
           ) : (
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setIsModalOpen(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button onClick={handleFinancingIntent} disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  "Confirm"
+            <>
+              {financingInfo?.url && (
+                <div className="py-4">
+                  <Button
+                    className="w-full"
+                    onClick={async () => {
+                      // Track intent when user clicks the link
+                      await handleFinancingIntent();
+                      // Open the financing URL in a new window
+                      if (financingInfo?.url) {
+                        window.open(
+                          financingInfo.url,
+                          "_blank",
+                          "noopener,noreferrer"
+                        );
+                      }
+                    }}
+                  >
+                    Visit School&apos;s Financing Page
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    This link opens the school&apos;s financing page in a new
+                    window.
+                  </p>
+                </div>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsModalOpen(false)}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                {!financingInfo?.url && (
+                  <Button
+                    onClick={handleFinancingIntent}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      "Confirm"
+                    )}
+                  </Button>
                 )}
-              </Button>
-            </DialogFooter>
+              </DialogFooter>
+            </>
           )}
         </DialogContent>
       </Dialog>

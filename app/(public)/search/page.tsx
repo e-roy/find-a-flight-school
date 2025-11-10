@@ -11,14 +11,6 @@ import { Card, CardContent } from "@/components/ui/card";
 
 // Schema for parsing URL search params (all values come as strings)
 const SearchParamsSchema = z.object({
-  programs: z
-    .string()
-    .optional()
-    .transform((val) => {
-      if (!val) return undefined;
-      return val.split(",").filter(Boolean);
-    }),
-  budgetBand: z.string().optional(),
   aircraft: z
     .string()
     .optional()
@@ -35,6 +27,13 @@ const SearchParamsSchema = z.object({
       return isNaN(num) ? undefined : num;
     }),
   city: z.string().optional(),
+  financingAvailable: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val === "true";
+    }),
 });
 
 function SearchPageContent() {
@@ -61,25 +60,12 @@ function SearchPageContent() {
       result.city = parsed.data.city;
     }
 
-    if (parsed.data.programs && parsed.data.programs.length > 0) {
-      // Validate programs against enum
-      const validPrograms = parsed.data.programs.filter((p) =>
-        ["PPL", "IR", "CPL", "CFI", "CFII", "ME"].includes(p)
-      );
-      if (validPrograms.length > 0) {
-        result.programs = validPrograms as MatchRequest["programs"];
-      }
-    }
-
-    if (
-      parsed.data.budgetBand &&
-      ["LOW", "MID", "HIGH"].includes(parsed.data.budgetBand)
-    ) {
-      result.budgetBand = parsed.data.budgetBand as MatchRequest["budgetBand"];
-    }
-
     if (parsed.data.aircraft && parsed.data.aircraft.length > 0) {
       result.aircraft = parsed.data.aircraft;
+    }
+
+    if (parsed.data.financingAvailable !== undefined) {
+      result.financingAvailable = parsed.data.financingAvailable;
     }
 
     return result;
@@ -103,14 +89,6 @@ function SearchPageContent() {
   const handleFiltersChange = (newFilters: Partial<MatchRequest>) => {
     const params = new URLSearchParams();
 
-    if (newFilters.programs && newFilters.programs.length > 0) {
-      params.set("programs", newFilters.programs.join(","));
-    }
-
-    if (newFilters.budgetBand) {
-      params.set("budgetBand", newFilters.budgetBand);
-    }
-
     if (newFilters.aircraft && newFilters.aircraft.length > 0) {
       params.set("aircraft", newFilters.aircraft.join(","));
     }
@@ -121,6 +99,10 @@ function SearchPageContent() {
 
     if (newFilters.city) {
       params.set("city", newFilters.city);
+    }
+
+    if (newFilters.financingAvailable) {
+      params.set("financingAvailable", "true");
     }
 
     const queryString = params.toString();

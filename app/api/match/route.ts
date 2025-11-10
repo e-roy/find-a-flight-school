@@ -50,9 +50,8 @@ async function generateDebrief(
   school: typeof schools.$inferSelect,
   latestFacts: Map<string, typeof facts.$inferSelect>,
   preferences: {
-    programs?: string[];
-    budgetBand?: string;
     aircraft?: string[];
+    financingAvailable?: boolean;
   }
 ): Promise<string[]> {
   if (!process.env.OPENAI_API_KEY) {
@@ -98,13 +97,10 @@ async function generateDebrief(
 
   // Build prompt
   const preferencesText = [
-    preferences.programs?.length
-      ? `Programs: ${preferences.programs.join(", ")}`
-      : null,
-    preferences.budgetBand ? `Budget: ${preferences.budgetBand}` : null,
     preferences.aircraft?.length
       ? `Preferred aircraft: ${preferences.aircraft.join(", ")}`
       : null,
+    preferences.financingAvailable ? `Financing: Required` : null,
   ]
     .filter(Boolean)
     .join(". ");
@@ -167,12 +163,6 @@ export async function POST(req: Request) {
 
     // Build query text from preferences
     const queryParts: string[] = [];
-    if (input.programs && input.programs.length > 0) {
-      queryParts.push(`Programs: ${input.programs.join(", ")}`);
-    }
-    if (input.budgetBand) {
-      queryParts.push(`Cost: ${input.budgetBand}`);
-    }
     if (input.aircraft && input.aircraft.length > 0) {
       queryParts.push(`Fleet: ${input.aircraft.join(", ")}`);
     }
@@ -180,6 +170,9 @@ export async function POST(req: Request) {
       queryParts.push(`Location: ${input.location.lat}, ${input.location.lng}`);
     } else if (input.city) {
       queryParts.push(`Location: ${input.city}`);
+    }
+    if (input.financingAvailable) {
+      queryParts.push(`Financing: Available`);
     }
 
     const queryText =
@@ -191,51 +184,29 @@ export async function POST(req: Request) {
     // Collect school IDs that match filters
     let matchingSchoolIds: string[] | null = null;
 
-    // Filter by programs if specified
-    if (input.programs && input.programs.length > 0) {
-      // Use raw SQL for JSONB comparison - fact_value stores program type as string
-      const programFacts = await db.execute(
-        sql`SELECT DISTINCT school_id FROM facts 
-            WHERE fact_key = ${FACT_KEYS.PROGRAM_TYPE} 
-            AND fact_value::text = ANY(${input.programs})`
-      );
+    // Filter by financing if specified
+    if (input.financingAvailable) {
+      // Get latest snapshots per school and check for financingUrl or financingAvailable
+      const financingSnapshotsQuery = sql`
+        SELECT DISTINCT ON (school_id) school_id
+        FROM snapshots
+        WHERE (
+          (raw_json->>'financingUrl' IS NOT NULL AND raw_json->>'financingUrl' != '' AND raw_json->>'financingUrl' != 'null')
+          OR (raw_json->>'financingAvailable' = 'true')
+          OR (raw_json->>'financing' = 'true')
+        )
+        ORDER BY school_id, as_of DESC
+      `;
 
-      const schoolIds = (programFacts.rows as Array<{ school_id: string }>).map(
-        (r) => r.school_id
-      );
+      const financingSnapshots = await db.execute(financingSnapshotsQuery);
+      const schoolIds = (
+        financingSnapshots.rows as Array<{ school_id: string }>
+      ).map((r) => r.school_id);
 
       if (schoolIds.length > 0) {
         matchingSchoolIds = schoolIds;
       } else {
-        // No schools match programs, return empty
-        return NextResponse.json({ results: [] });
-      }
-    }
-
-    // Filter by cost band if specified
-    if (input.budgetBand) {
-      const costFacts = await db.execute(
-        sql`SELECT DISTINCT school_id FROM facts 
-            WHERE fact_key = ${FACT_KEYS.COST_BAND} 
-            AND fact_value::text = ${input.budgetBand}`
-      );
-
-      const schoolIds = (costFacts.rows as Array<{ school_id: string }>).map(
-        (r) => r.school_id
-      );
-
-      if (schoolIds.length > 0) {
-        if (matchingSchoolIds) {
-          // Intersect with existing filters
-          const existingSet = new Set(matchingSchoolIds);
-          matchingSchoolIds = schoolIds.filter((id) => existingSet.has(id));
-          if (matchingSchoolIds.length === 0) {
-            return NextResponse.json({ results: [] });
-          }
-        } else {
-          matchingSchoolIds = schoolIds;
-        }
-      } else {
+        // No schools have financing, return empty
         return NextResponse.json({ results: [] });
       }
     }
@@ -373,9 +344,8 @@ export async function POST(req: Request) {
       let reasons: string[] = [];
       if (i < 3) {
         reasons = await generateDebrief(school, latestFacts, {
-          programs: input.programs,
-          budgetBand: input.budgetBand,
           aircraft: input.aircraft,
+          financingAvailable: input.financingAvailable,
         });
       }
 

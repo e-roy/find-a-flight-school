@@ -288,4 +288,13 @@ export const schoolsRouter = router({
         hasMore: offset + limit < filtered.length,
       };
     }),
+  currentUserRole: publicProcedure.query(async ({ ctx }) => {
+    // Return null if not signed in, otherwise return the user's role
+    if (!ctx.session?.user?.role) {
+      return { role: null };
+    }
+    return {
+      role: ctx.session.user.role as "user" | "school" | "admin" | null,
+    };
+  }),
 });

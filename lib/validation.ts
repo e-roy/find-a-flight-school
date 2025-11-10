@@ -116,22 +116,8 @@ export const MatchRequestSchema = z.object({
     .optional(),
   city: z.string().optional(),
   radiusKm: z.number().min(1).max(5000).default(100),
-  programs: z
-    .array(
-      z.enum([
-        PROGRAM_TYPES.PPL,
-        PROGRAM_TYPES.IR,
-        PROGRAM_TYPES.CPL,
-        PROGRAM_TYPES.CFI,
-        PROGRAM_TYPES.CFII,
-        PROGRAM_TYPES.ME,
-      ])
-    )
-    .optional(),
-  budgetBand: z
-    .enum([COST_BANDS.LOW, COST_BANDS.MID, COST_BANDS.HIGH])
-    .optional(),
   aircraft: z.array(z.string()).optional(),
+  financingAvailable: z.boolean().optional(),
 });
 
 export type MatchRequest = z.infer<typeof MatchRequestSchema>;

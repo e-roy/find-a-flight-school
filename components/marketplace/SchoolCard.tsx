@@ -6,7 +6,14 @@ import Image from "next/image";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SaveButton } from "@/components/marketplace/SaveButton";
-import { MapPin, Globe, Star, DollarSign, Plane } from "lucide-react";
+import {
+  MapPin,
+  Globe,
+  Star,
+  DollarSign,
+  Plane,
+  CreditCard,
+} from "lucide-react";
 import { getPhotoUrl } from "@/lib/utils-photos";
 import type { schools } from "@/db/schema/schools";
 
@@ -21,6 +28,7 @@ interface SchoolCardProps {
       rating?: number;
       ratingCount?: number;
       photos?: (string | { name: string })[];
+      financingAvailable?: boolean;
     };
   };
 }
@@ -80,10 +88,11 @@ export function SchoolCard({ school }: SchoolCardProps) {
   const fleetAircraft = school.facts?.fleetAircraft ?? [];
   const rating = school.facts?.rating;
   const ratingCount = school.facts?.ratingCount;
+  const financingAvailable = school.facts?.financingAvailable ?? false;
 
   return (
     <Link href={`/schools/${school.id}`}>
-      <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer flex flex-col pt-0">
+      <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer flex flex-col pt-0 gap-2">
         {/* Image Section */}
         <div className="relative w-full h-48 bg-muted overflow-hidden rounded-t-lg">
           {imageUrl && !imageError ? (
@@ -110,44 +119,59 @@ export function SchoolCard({ school }: SchoolCardProps) {
           </div>
         </div>
 
-        <CardHeader className="flex-1 pb-2">
-          <h3 className="font-semibold text-lg line-clamp-2 mb-2">
+        <CardHeader className="flex-1">
+          <h3 className="font-semibold text-lg line-clamp-2">
             {school.canonicalName}
           </h3>
 
-          {/* Programs */}
-          {programs.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
-              {programs.slice(0, 3).map((program) => (
-                <Badge key={program} variant="secondary" className="text-xs">
-                  {program}
-                </Badge>
-              ))}
-              {programs.length > 3 && (
-                <Badge variant="secondary" className="text-xs">
-                  +{programs.length - 3}
-                </Badge>
-              )}
-            </div>
-          )}
+          {/* Programs - fixed height container for uniformity */}
+          <div className="min-h-[20px]">
+            {programs.length > 0 && (
+              <div className="flex flex-wrap gap-0.5">
+                {programs.slice(0, 3).map((program) => (
+                  <Badge key={program} variant="secondary" className="text-xs">
+                    {program}
+                  </Badge>
+                ))}
+                {programs.length > 3 && (
+                  <Badge variant="secondary" className="text-xs">
+                    +{programs.length - 3}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
 
-          {/* Rating */}
-          {rating !== undefined && (
-            <div className="flex items-center gap-1 text-sm mb-2">
-              <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-              <span className="font-medium">{rating.toFixed(1)}</span>
-              {ratingCount !== undefined && (
-                <span className="text-muted-foreground">({ratingCount})</span>
-              )}
-            </div>
-          )}
+          {/* Rating and Financing - fixed height container for uniformity */}
+          <div className="min-h-[20px]">
+            {(rating !== undefined || financingAvailable) && (
+              <div className="flex items-center gap-1.5 text-sm">
+                {rating !== undefined && (
+                  <div className="flex items-center gap-1">
+                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                    <span className="font-medium">{rating.toFixed(1)}</span>
+                    {ratingCount !== undefined && (
+                      <span className="text-muted-foreground">
+                        ({ratingCount})
+                      </span>
+                    )}
+                  </div>
+                )}
+                {financingAvailable && (
+                  <Badge variant="outline" className="h-5 px-1.5">
+                    <CreditCard className="h-3 w-3" />
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
         </CardHeader>
 
-        <CardContent className="space-y-2 pt-0">
+        <CardContent className="space-y-1 pt-0">
           {/* Cost Band */}
           {costBand && (
-            <div className="flex items-center gap-2 text-sm">
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-1.5 text-sm">
+              <DollarSign className="h-4 w-4 text-muted-foreground shrink-0" />
               <Badge
                 variant={
                   costBand === "LOW"
@@ -165,8 +189,8 @@ export function SchoolCard({ school }: SchoolCardProps) {
 
           {/* Fleet Summary */}
           {fleetAircraft.length > 0 && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Plane className="h-4 w-4" />
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Plane className="h-4 w-4 shrink-0" />
               <span className="line-clamp-1">
                 {fleetAircraft.slice(0, 2).join(", ")}
                 {fleetAircraft.length > 2 && ` +${fleetAircraft.length - 2}`}
@@ -176,15 +200,15 @@ export function SchoolCard({ school }: SchoolCardProps) {
 
           {/* Location */}
           {addressParts && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <MapPin className="h-4 w-4 flex-shrink-0" />
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <MapPin className="h-4 w-4 shrink-0" />
               <span className="line-clamp-1">{addressParts}</span>
             </div>
           )}
 
           {/* Domain */}
           {school.domain && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <Globe className="h-4 w-4 flex-shrink-0" />
               <span className="line-clamp-1 truncate">{school.domain}</span>
             </div>

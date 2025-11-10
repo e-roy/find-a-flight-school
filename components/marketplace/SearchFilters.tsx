@@ -4,22 +4,9 @@ import { useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  PROGRAM_TYPES,
-  COST_BANDS,
-  type ProgramType,
-  type CostBand,
-} from "@/types";
-import { MapPin, Plane, DollarSign } from "lucide-react";
+import { MapPin, Plane, CreditCard } from "lucide-react";
 import type { MatchRequest } from "@/lib/validation";
 
 interface SearchFiltersProps {
@@ -32,17 +19,6 @@ export function SearchFilters({
   onFiltersChange,
 }: SearchFiltersProps) {
   const [aircraftInput, setAircraftInput] = useState("");
-
-  const handleProgramToggle = (program: ProgramType) => {
-    const currentPrograms = filters.programs || [];
-    const newPrograms = currentPrograms.includes(program)
-      ? currentPrograms.filter((p) => p !== program)
-      : [...currentPrograms, program];
-    onFiltersChange({
-      ...filters,
-      programs: newPrograms.length > 0 ? newPrograms : undefined,
-    });
-  };
 
   const handleAircraftAdd = () => {
     if (aircraftInput.trim()) {
@@ -102,54 +78,25 @@ export function SearchFilters({
       </div>
 
       <div>
-        <Label className="flex items-center gap-2 mb-2">
-          <Plane className="h-4 w-4" />
-          Programs
-        </Label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {Object.values(PROGRAM_TYPES).map((program) => (
-            <div key={program} className="flex items-center space-x-2">
-              <Checkbox
-                id={program}
-                checked={(filters.programs || []).includes(program)}
-                onCheckedChange={() => handleProgramToggle(program)}
-              />
-              <label
-                htmlFor={program}
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-              >
-                {program}
-              </label>
-            </div>
-          ))}
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="financingAvailable"
+            checked={filters.financingAvailable || false}
+            onCheckedChange={(checked) =>
+              onFiltersChange({
+                ...filters,
+                financingAvailable: checked ? true : undefined,
+              })
+            }
+          />
+          <Label
+            htmlFor="financingAvailable"
+            className="flex items-center gap-2 cursor-pointer"
+          >
+            <CreditCard className="h-4 w-4" />
+            Financing Available
+          </Label>
         </div>
-      </div>
-
-      <div>
-        <Label htmlFor="budgetBand" className="flex items-center gap-2">
-          <DollarSign className="h-4 w-4" />
-          Budget Band
-        </Label>
-        <Select
-          value={filters.budgetBand || undefined}
-          onValueChange={(value) =>
-            onFiltersChange({
-              ...filters,
-              budgetBand: value ? (value as CostBand) : undefined,
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select budget band (optional)" />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.values(COST_BANDS).map((band) => (
-              <SelectItem key={band} value={band}>
-                {band}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       <div>
