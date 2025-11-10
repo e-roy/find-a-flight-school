@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SaveButton } from "@/components/marketplace/SaveButton";
+import { CompareButton } from "@/components/marketplace/CompareButton";
 import { TierBadge } from "@/components/schools/TierBadge";
 import { Star, Globe, Plane, Mail, DollarSign } from "lucide-react";
 import { getPhotoUrl } from "@/lib/utils-photos";
@@ -94,6 +95,15 @@ export function SchoolHero({
         </div>
       )}
 
+      {/* Compare Button - Top Left */}
+      <div className="absolute top-2 left-2 z-10">
+        <CompareButton
+          schoolId={school.id}
+          variant="ghost"
+          size="icon"
+          className="bg-black/40 hover:bg-black/60 text-white backdrop-blur-md border border-white/30 shadow-lg shadow-black/20"
+        />
+      </div>
       {/* Save Button - Top Right */}
       <div className="absolute top-2 right-2 z-10">
         <SaveButton

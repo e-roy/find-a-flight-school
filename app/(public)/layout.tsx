@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { CompareTray } from "@/components/marketplace/CompareTray";
 
 export default function PublicLayout({
   children,
@@ -35,12 +36,7 @@ export default function PublicLayout({
               >
                 Saved
               </Link>
-              <Link
-                href="/compare"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Compare
-              </Link>
+              <CompareTray variant="default" />
             </div>
           </div>
           <div>

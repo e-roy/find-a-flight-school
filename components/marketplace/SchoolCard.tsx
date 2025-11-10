@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SaveButton } from "@/components/marketplace/SaveButton";
+import { CompareButton } from "@/components/marketplace/CompareButton";
 import {
   MapPin,
   Globe,
@@ -113,8 +114,12 @@ export function SchoolCard({ school }: SchoolCardProps) {
               <Plane className="h-16 w-16 text-muted-foreground/30" />
             </div>
           )}
-          {/* Save button overlay */}
-          <div className="absolute top-2 right-2">
+          {/* Compare button overlay - top left */}
+          <div className="absolute top-2 left-2 z-10">
+            <CompareButton schoolId={school.id} variant="ghost" size="icon" />
+          </div>
+          {/* Save button overlay - top right */}
+          <div className="absolute top-2 right-2 z-10">
             <SaveButton schoolId={school.id} variant="ghost" size="icon" />
           </div>
         </div>
@@ -209,7 +214,7 @@ export function SchoolCard({ school }: SchoolCardProps) {
           {/* Domain */}
           {school.domain && (
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Globe className="h-4 w-4 flex-shrink-0" />
+              <Globe className="h-4 w-4 shrink-0" />
               <span className="line-clamp-1 truncate">{school.domain}</span>
             </div>
           )}

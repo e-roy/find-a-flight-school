@@ -43,9 +43,21 @@ export default function ComparePage() {
 
   const schoolIds = comparisonData?.schoolIds ?? [];
 
+  // Always create queries for up to 4 schools to maintain consistent hook count
+  // This prevents "Rendered fewer hooks than expected" errors when schools are removed
+  const maxSchools = 4;
+  const paddedSchoolIds = [
+    ...schoolIds,
+    ...Array(maxSchools - schoolIds.length).fill(null),
+  ].slice(0, maxSchools);
+
   // Fetch full school data for each school ID in parallel
-  const schoolQueries = schoolIds.map((schoolId) =>
-    trpc.schools.byIdWithFacts.useQuery({ id: schoolId })
+  // Use null as placeholder to maintain consistent hook count
+  const schoolQueries = paddedSchoolIds.map((schoolId) =>
+    trpc.schools.byIdWithFacts.useQuery(
+      { id: schoolId ?? "" },
+      { enabled: schoolId !== null }
+    )
   );
 
   const isLoadingSchools = schoolQueries.some((q) => q.isLoading);
@@ -59,6 +71,7 @@ export default function ComparePage() {
       school: data.school,
       facts: data.facts,
       signals: data.signals,
+      latestSnapshot: data.latestSnapshot,
     }));
 
   if (isLoadingComparison || isLoadingSchools) {
