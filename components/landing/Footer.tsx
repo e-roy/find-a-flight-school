@@ -22,6 +22,30 @@ export function Footer() {
               How it works
             </Link>
             <Link
+              href="#trust-tiers"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Trust Tiers
+            </Link>
+            <Link
+              href="#matching-ai"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              AI Matching
+            </Link>
+            <Link
+              href="#financing"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Financing
+            </Link>
+            <Link
+              href="#faq"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              FAQ
+            </Link>
+            <Link
               href="/for-schools"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -55,4 +79,3 @@ export function Footer() {
     </footer>
   );
 }
-

@@ -1,9 +1,33 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/rbac";
+
+const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+export const metadata: Metadata = {
+  title: "Admin Console",
+  description:
+    "Monitor system health and data operations. Manage schools, facts, queue, and system administration.",
+  robots: {
+    index: false,
+    follow: false,
+  },
+  openGraph: {
+    title: "Admin Console",
+    description: "Monitor system health and data operations. Manage schools, facts, and queue.",
+    type: "website",
+    url: `${baseUrl}/admin`,
+  },
+  twitter: {
+    card: "summary",
+    title: "Admin Console",
+    description: "Monitor system health and data operations.",
+  },
+};
 
 export default async function AdminLayout({
   children,

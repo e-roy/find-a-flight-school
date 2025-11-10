@@ -1,7 +1,31 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { PortalNav } from "@/components/portal/PortalNav";
 import { auth } from "@/lib/auth";
 import { hasRole } from "@/lib/rbac";
+
+const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+export const metadata: Metadata = {
+  title: "School Portal",
+  description:
+    "Manage your flight school profile, view leads, and track your progress. Access your school dashboard and analytics.",
+  robots: {
+    index: false,
+    follow: false,
+  },
+  openGraph: {
+    title: "School Portal",
+    description: "Manage your flight school profile, view leads, and track your progress.",
+    type: "website",
+    url: `${baseUrl}/portal`,
+  },
+  twitter: {
+    card: "summary",
+    title: "School Portal",
+    description: "Manage your flight school profile, view leads, and track your progress.",
+  },
+};
 
 export default async function PortalLayout({
   children,

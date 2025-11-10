@@ -30,6 +30,29 @@ function getFirecrawlInstance(): Firecrawl {
 }
 
 /**
+ * TypeScript interfaces for Firecrawl data structures
+ */
+interface FirecrawlPage {
+  url?: string;
+  sourceURL?: string;
+  link?: string;
+  markdown?: string;
+  content?: string;
+  text?: string;
+  [key: string]: unknown; // Allow additional properties
+}
+
+interface FirecrawlCrawlResponse {
+  jobId?: string;
+  id?: string;
+  job?: {
+    id?: string;
+  };
+  data?: FirecrawlPage[];
+  [key: string]: unknown; // Allow additional properties
+}
+
+/**
  * Zod schema for extracting flight school information using AI
  * Used with generateObject for structured output
  */
@@ -164,7 +187,7 @@ export interface FirecrawlExtractResponse {
  * @returns Extracted data with confidence score, or error on failure
  */
 export async function processCrawlResult(
-  crawlData: any[]
+  crawlData: FirecrawlPage[]
 ): Promise<FirecrawlExtractResponse> {
   // Step 1: Extract and combine markdown from all pages
   if (!crawlData || !Array.isArray(crawlData) || crawlData.length === 0) {
@@ -178,19 +201,12 @@ export async function processCrawlResult(
   const markdownParts: string[] = [];
   for (const page of crawlData) {
     // Handle different page structures - could be nested or flat
-    const pageObj = page && typeof page === "object" ? page : {};
+    const pageObj: FirecrawlPage = page && typeof page === "object" ? page : {};
     const pageUrl =
-      (pageObj as any).url ||
-      (pageObj as any).sourceURL ||
-      (pageObj as any).link ||
-      "unknown";
+      pageObj.url ?? pageObj.sourceURL ?? pageObj.link ?? "unknown";
 
     // Try multiple possible markdown fields
-    const markdown =
-      (pageObj as any).markdown ||
-      (pageObj as any).content ||
-      (pageObj as any).text ||
-      "";
+    const markdown = pageObj.markdown ?? pageObj.content ?? pageObj.text ?? "";
 
     if (
       markdown &&
@@ -354,7 +370,7 @@ export async function startAsyncCrawl(
     const firecrawl = getFirecrawlInstance();
 
     const crawlOptions = {
-      limit: 50, // Reasonable limit to avoid crawling entire large sites
+      limit: 15, // Reasonable limit to avoid crawling entire large sites
       scrapeOptions: {
         formats: ["markdown"] as (
           | "markdown"
@@ -385,14 +401,14 @@ export async function startAsyncCrawl(
     // Start async crawl - this returns immediately
     // Note: The Firecrawl SDK may return a job ID or may handle webhooks differently
     // Check the actual SDK response structure
-    const response = await firecrawl.crawl(url, crawlOptions);
+    const response = (await firecrawl.crawl(
+      url,
+      crawlOptions
+    )) as unknown as FirecrawlCrawlResponse;
 
     // Extract job ID if available (structure may vary by SDK version)
     const jobId =
-      (response as any).jobId ||
-      (response as any).id ||
-      (response as any).job?.id ||
-      undefined;
+      response.jobId ?? response.id ?? response.job?.id ?? undefined;
 
     return {
       success: true,
@@ -434,7 +450,7 @@ export async function extractFromDomain(
     const firecrawl = getFirecrawlInstance();
 
     const crawlOptions = {
-      limit: 50, // Reasonable limit to avoid crawling entire large sites
+      limit: 15, // Reasonable limit to avoid crawling entire large sites
       scrapeOptions: {
         formats: ["markdown"] as (
           | "markdown"
@@ -448,7 +464,10 @@ export async function extractFromDomain(
       timeout: 300, // 5 minutes timeout
     };
 
-    const crawlResponse = await firecrawl.crawl(url, crawlOptions);
+    const crawlResponse = (await firecrawl.crawl(
+      url,
+      crawlOptions
+    )) as unknown as FirecrawlCrawlResponse;
 
     // Process the crawl result using the shared function
     return await processCrawlResult(crawlResponse.data || []);

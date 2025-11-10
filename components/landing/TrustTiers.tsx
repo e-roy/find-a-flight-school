@@ -1,6 +1,5 @@
 import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Trophy, CheckCircle2, Handshake, AlertCircle } from "lucide-react";
 
 const tiers = [
@@ -51,7 +50,7 @@ const tiers = [
 
 export function TrustTiers() {
   return (
-    <section className="bg-muted/30 py-16 md:py-24">
+    <section id="trust-tiers" className="bg-muted/30 py-16 md:py-24 lg:py-32">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-5xl space-y-12">
           <div className="text-center space-y-4">
@@ -60,16 +59,16 @@ export function TrustTiers() {
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
               Every profile displays a clear verification tier so you know
-              what's been checked—and how.
+              what&apos;s been checked—and how.
             </p>
           </div>
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid gap-6 md:gap-8 md:grid-cols-2 items-stretch">
             {tiers.map((tier, index) => {
               const Icon = tier.icon;
               return (
                 <Card
                   key={index}
-                  className={`group hover:shadow-lg transition-all duration-300 border-2 ${tier.borderColor} ${tier.bgColor}`}
+                  className={`group flex flex-col h-full hover:shadow-lg transition-all duration-300 border-2 ${tier.borderColor} ${tier.bgColor} shadow-md rounded-xl`}
                 >
                   <CardHeader>
                     <div className="flex items-center gap-3">
@@ -84,11 +83,11 @@ export function TrustTiers() {
                       </CardTitle>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
+                  <CardContent className="flex flex-col flex-1 space-y-4 p-6">
+                    <p className="text-sm text-muted-foreground flex-1">
                       {tier.description}
                     </p>
-                    <div className="relative aspect-video rounded-lg overflow-hidden border bg-background">
+                    <div className="relative aspect-video rounded-lg overflow-hidden border bg-background shadow-sm">
                       <Image
                         src={tier.image}
                         alt={tier.title}
@@ -101,10 +100,10 @@ export function TrustTiers() {
               );
             })}
           </div>
-          <div className="p-4 rounded-lg bg-background border text-center">
+          <div className="p-6 rounded-xl bg-background border text-center shadow-md">
             <p className="text-sm text-muted-foreground">
-              <strong>Note:</strong> Each fact shows an "as-of" timestamp;
-              outliers are flagged for review.
+              <strong>Note:</strong> Each fact shows an &ldquo;as-of&ldquo;
+              timestamp; outliers are flagged for review.
             </p>
           </div>
         </div>

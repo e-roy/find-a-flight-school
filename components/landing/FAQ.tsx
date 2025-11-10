@@ -10,13 +10,12 @@ import {
 const faqItems = [
   {
     question: "Is this free for students?",
-    answer:
-      "Yes—browsing, comparing, and matching are free.",
+    answer: "Yes—browsing, comparing, and matching are free.",
   },
   {
     question: "Where does the data come from?",
     answer:
-      "Public sources, school-submitted info, and **privacy-safe FSP operational signals** for verified tiers. Each field shows an \"as-of\" timestamp.",
+      'Public sources, school-submitted info, and **privacy-safe FSP operational signals** for verified tiers. Each field shows an "as-of" timestamp.',
   },
   {
     question: "How accurate are cost estimates?",
@@ -42,26 +41,29 @@ const faqItems = [
 
 export function FAQ() {
   return (
-    <section className="container mx-auto px-4 py-16 md:py-24">
+    <section
+      id="faq"
+      className="container mx-auto px-4 py-16 md:py-24 lg:py-32"
+    >
       <div className="mx-auto max-w-3xl space-y-8">
         <h2 className="text-3xl font-bold tracking-tight text-center sm:text-4xl">
           Frequently Asked Questions
         </h2>
         <Accordion type="single" collapsible className="w-full">
           {faqItems.map((item, index) => (
-            <AccordionItem key={index} value={`item-${index}`}>
-              <AccordionTrigger className="text-left">
+            <AccordionItem
+              key={index}
+              value={`item-${index}`}
+              className="border rounded-xl px-4 mb-2 shadow-sm"
+            >
+              <AccordionTrigger className="text-left hover:no-underline">
                 {item.question}
               </AccordionTrigger>
               <AccordionContent>
                 <p className="text-muted-foreground">
                   {item.answer.split(/(\*\*.*?\*\*)/g).map((part, i) => {
                     if (part.startsWith("**") && part.endsWith("**")) {
-                      return (
-                        <strong key={i}>
-                          {part.slice(2, -2)}
-                        </strong>
-                      );
+                      return <strong key={i}>{part.slice(2, -2)}</strong>;
                     }
                     return <span key={i}>{part}</span>;
                   })}
@@ -74,4 +76,3 @@ export function FAQ() {
     </section>
   );
 }
-

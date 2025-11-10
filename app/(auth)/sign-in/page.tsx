@@ -1,7 +1,31 @@
+import type { Metadata } from "next";
 import { signIn } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+
+const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+export const metadata: Metadata = {
+  title: "Sign In",
+  description:
+    "Sign in to access your account and manage your flight school profile. Use your Google account to get started.",
+  robots: {
+    index: false,
+    follow: false,
+  },
+  openGraph: {
+    title: "Sign In - Find a Flight School",
+    description: "Sign in to access your account and manage your flight school profile.",
+    type: "website",
+    url: `${baseUrl}/sign-in`,
+  },
+  twitter: {
+    card: "summary",
+    title: "Sign In - Find a Flight School",
+    description: "Sign in to access your account and manage your flight school profile.",
+  },
+};
 
 export default async function SignInPage({
   searchParams,
