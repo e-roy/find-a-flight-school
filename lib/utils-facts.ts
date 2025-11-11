@@ -31,6 +31,7 @@ export interface OrganizedFacts {
         weekdayText?: string[];
       }
     | undefined;
+  coordinates: { lat: number; lng: number } | null;
 }
 
 /**
@@ -69,6 +70,7 @@ export function organizeFactsByCategory(
       ratingCount: undefined,
       photos: undefined,
       openingHours: undefined,
+      coordinates: null,
     };
   }
 
@@ -161,6 +163,23 @@ export function organizeFactsByCategory(
         })
       : undefined;
 
+  const coordinatesFact = latestFactsByKey.get(FACT_KEYS.GOOGLE_COORDINATES);
+  let coordinates: { lat: number; lng: number } | null = null;
+  if (coordinatesFact && coordinatesFact.factValue) {
+    const coordValue = coordinatesFact.factValue;
+    if (
+      typeof coordValue === "object" &&
+      coordValue !== null &&
+      !Array.isArray(coordValue) &&
+      "lat" in coordValue &&
+      "lng" in coordValue &&
+      typeof coordValue.lat === "number" &&
+      typeof coordValue.lng === "number"
+    ) {
+      coordinates = { lat: coordValue.lat, lng: coordValue.lng };
+    }
+  }
+
   return {
     programs,
     costBand,
@@ -175,6 +194,7 @@ export function organizeFactsByCategory(
     ratingCount,
     photos,
     openingHours,
+    coordinates,
   };
 }
 

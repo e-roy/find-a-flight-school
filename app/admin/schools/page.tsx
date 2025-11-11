@@ -71,6 +71,16 @@ export default function SchoolsAdminPage() {
     },
   });
 
+  const refreshMutation = trpc.seeds.refreshGooglePlaces.useMutation({
+    onSuccess: () => {
+      toast.success("Google Places data refreshed");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(`Failed to refresh: ${error.message}`);
+    },
+  });
+
   const handleEnqueue = async (schoolId: string, domain: string | null) => {
     if (!domain) {
       toast.error("School does not have a domain");
@@ -265,22 +275,40 @@ export default function SchoolsAdminPage() {
                               {formatDate(school.lastScraped)}
                             </TableCell>
                             <TableCell>
-                              {school.domain ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    handleEnqueue(school.id, school.domain)
-                                  }
-                                  disabled={enqueueMutation.isPending}
-                                >
-                                  Enqueue Crawl
-                                </Button>
-                              ) : (
-                                <span className="text-muted-foreground text-sm">
-                                  No domain
-                                </span>
-                              )}
+                              <div className="flex gap-2">
+                                {school.googlePlaceId ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      refreshMutation.mutate({
+                                        schoolId: school.id,
+                                      })
+                                    }
+                                    disabled={refreshMutation.isPending}
+                                  >
+                                    {refreshMutation.isPending
+                                      ? "Refreshing..."
+                                      : "Refresh"}
+                                  </Button>
+                                ) : null}
+                                {school.domain ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleEnqueue(school.id, school.domain)
+                                    }
+                                    disabled={enqueueMutation.isPending}
+                                  >
+                                    Enqueue Crawl
+                                  </Button>
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">
+                                    No domain
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}

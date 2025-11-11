@@ -8,6 +8,7 @@ import { crawlQueue } from "@/db/schema/crawl_queue";
 // import { snapshots } from "@/db/schema/snapshots";
 import { LeadCreateSchema } from "@/lib/validation";
 import { desc, eq, sql, and, or, ilike, isNotNull } from "drizzle-orm";
+import { fetchFAAAirportData } from "@/lib/faa-data";
 
 export const schoolsRouter = router({
   byId: publicProcedure
@@ -204,6 +205,9 @@ export const schoolsRouter = router({
           domain: schools.domain,
           addrStd: schools.addrStd,
           phone: schools.phone,
+          lat: schools.lat,
+          lng: schools.lng,
+          googlePlaceId: schools.googlePlaceId,
           createdAt: schools.createdAt,
           updatedAt: schools.updatedAt,
           crawlStatus: sql<string | null>`
@@ -297,4 +301,10 @@ export const schoolsRouter = router({
       role: ctx.session.user.role as "user" | "school" | "admin" | null,
     };
   }),
+      getAirportData: publicProcedure
+        .input(z.object({ airportCode: z.string().min(1) }))
+        .query(async ({ ctx, input }) => {
+          const airportData = await fetchFAAAirportData(input.airportCode);
+          return airportData;
+        }),
 });

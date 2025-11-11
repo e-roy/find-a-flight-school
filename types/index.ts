@@ -19,6 +19,9 @@ export const FACT_KEYS = {
   PRICE_LEVEL: "price.level",
   PHOTOS: "photos",
   OPENING_HOURS: "opening_hours",
+  GOOGLE_COORDINATES: "google.coordinates",
+  GOOGLE_PLACE_ID: "google.place_id",
+  GOOGLE_PLACE_TYPES: "google.place_types",
 } as const;
 
 export type FactKey = (typeof FACT_KEYS)[keyof typeof FACT_KEYS];
@@ -51,4 +54,28 @@ export type FactValue =
   | string
   | string[]
   | number
+  | { lat: number; lng: number }
   | null;
+
+// FAA Airport Data Types
+export interface FAAAirportData {
+  airportCode: string;
+  airportName?: string;
+  runways?: Array<{
+    identifier: string;
+    length: number;
+    width: number;
+    surface: string;
+  }>;
+  frequencies?: Array<{
+    type: string; // CTAF, UNICOM, ATIS, Ground, Tower, etc.
+    frequency: string;
+  }>;
+  fuelAvailable?: string[];
+  services?: string[];
+  elevation?: number;
+  coordinates?: {
+    lat: number;
+    lng: number;
+  };
+}

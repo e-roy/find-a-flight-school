@@ -3,6 +3,8 @@
 import { FactSection, FactItem } from "./FactSection";
 import { MapPin, Mail, Phone, Globe, ExternalLink } from "lucide-react";
 import type { schools } from "@/db/schema/schools";
+import { GoogleMapEmbed } from "./GoogleMapEmbed";
+import { AirportInfo } from "./AirportInfo";
 
 type School = typeof schools.$inferSelect;
 
@@ -12,6 +14,7 @@ interface LocationContactSectionProps {
   address?: string;
   email?: string;
   phone?: string;
+  coordinates?: { lat: number; lng: number } | null;
 }
 
 export function LocationContactSection({
@@ -20,6 +23,7 @@ export function LocationContactSection({
   address,
   email,
   phone,
+  coordinates,
 }: LocationContactSectionProps) {
   const addr = school.addrStd;
   let addressParts: string | null = null;
@@ -43,7 +47,13 @@ export function LocationContactSection({
   }
 
   const displayAddress = address || addressParts;
-  const hasLocation = airportCode || displayAddress;
+
+  // Extract coordinates: use prop first, then fallback to school.lat/lng
+  const coords =
+    coordinates ||
+    (school.lat && school.lng ? { lat: school.lat, lng: school.lng } : null);
+
+  const hasLocation = airportCode || displayAddress || coords;
   const hasContact = email || phone || school.domain;
   const hasAnyData = hasLocation || hasContact;
 
@@ -58,23 +68,32 @@ export function LocationContactSection({
   )}`;
 
   return (
-    <FactSection title="Location & Contact" icon={<MapPin className="h-5 w-5" />}>
+    <FactSection
+      title="Location & Contact"
+      icon={<MapPin className="h-5 w-5" />}
+    >
       <div className="space-y-4">
         {/* Location Section */}
         {hasLocation && (
           <div className="space-y-3">
-            {airportCode && (
-              <FactItem
-                label="Airport Code"
-                value={
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm font-semibold">
-                      {airportCode}
-                    </span>
-                  </div>
-                }
-              />
+            {/* Google Maps Embed */}
+            {coords && (
+              <div className="w-full h-64 rounded-lg overflow-hidden border">
+                <GoogleMapEmbed
+                  lat={coords.lat}
+                  lng={coords.lng}
+                  schoolName={school.canonicalName}
+                />
+              </div>
             )}
+
+            {/* Airport Information */}
+            {airportCode &&
+              airportCode.length >= 3 &&
+              airportCode.length <= 4 && (
+                <AirportInfo airportCode={airportCode} />
+              )}
+
             {displayAddress && (
               <FactItem
                 label="Address"
@@ -151,4 +170,3 @@ export function LocationContactSection({
     </FactSection>
   );
 }
-

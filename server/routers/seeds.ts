@@ -1,16 +1,16 @@
-import { router, protectedProcedure, publicProcedure } from "@/lib/trpc/trpc";
+import { router, protectedProcedure } from "@/lib/trpc/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { schools } from "@/db/schema/schools";
 import { sources } from "@/db/schema/sources";
 import { crawlQueue } from "@/db/schema/crawl_queue";
 import { facts } from "@/db/schema/facts";
-import { desc, or, ilike, eq, and, isNotNull } from "drizzle-orm";
+import { or, ilike, eq, and, isNotNull } from "drizzle-orm";
 import { hasRole } from "@/lib/rbac";
-import { search } from "@/lib/discovery/google";
-import type { Candidate } from "@/lib/discovery/google";
+import { search, fetchPlaceById } from "@/lib/discovery/google";
 import { checkDiscoverQuota, checkImportQuota } from "@/lib/quota";
 import { normalizeGooglePlaces } from "@/lib/normalize-google-places";
+import { FACT_KEYS } from "@/types";
 
 /**
  * Middleware to check if user has admin role
@@ -116,6 +116,11 @@ async function createSchoolFromGooglePlaces(
     photos?: any;
     regularOpeningHours?: any;
     currentOpeningHours?: any;
+    formattedAddress?: string | null;
+    addressComponents?: any[] | null;
+    location?: { lat: number; lng: number } | null;
+    types?: string[] | null;
+    primaryType?: string | null;
   },
   addressData: {
     city: string | null;
@@ -209,6 +214,9 @@ async function createSchoolFromGooglePlaces(
         addrStd,
         phone: input.phone || null,
         domain,
+        lat: input.location?.lat || null,
+        lng: input.location?.lng || null,
+        googlePlaceId: input.placeId || null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -271,6 +279,9 @@ async function createSchoolFromGooglePlaces(
       addrStd,
       phone: input.phone || null,
       domain: null,
+      lat: input.location?.lat || null,
+      lng: input.location?.lng || null,
+      googlePlaceId: input.placeId || null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -299,6 +310,13 @@ async function createSchoolFromGooglePlaces(
     photos: input.photos || null,
     regularOpeningHours: input.regularOpeningHours || null,
     phone: input.phone || null,
+    formattedAddress: input.formattedAddress || null,
+    addressComponents: input.addressComponents || null,
+    location: input.location || null,
+    types: input.types || null,
+    primaryType: input.primaryType || null,
+    placeId: input.placeId || null,
+    displayName: input.name || null,
   });
   if (seedFacts.length > 0) {
     const factsToInsert = seedFacts.map((fact) => ({
@@ -614,6 +632,8 @@ export const seedsRouter = router({
           )
           .optional(),
         addressComponents: z.any().optional(),
+        types: z.array(z.string()).optional(),
+        primaryType: z.string().optional(),
         queryParams: z
           .object({
             city: z.string().optional(),
@@ -653,6 +673,11 @@ export const seedsRouter = router({
           photos: input.photos,
           regularOpeningHours: input.regularOpeningHours,
           currentOpeningHours: input.currentOpeningHours,
+          formattedAddress: input.address || null,
+          addressComponents: input.addressComponents || null,
+          location: { lat: input.lat, lng: input.lng },
+          types: input.types || null,
+          primaryType: input.primaryType || null,
         },
         addressData,
         now
@@ -663,6 +688,158 @@ export const seedsRouter = router({
         schoolId: result.schoolId,
         queueId: result.queueId || undefined,
         isNew: result.isNew,
+      };
+    }),
+  refreshGooglePlaces: isAdmin
+    .input(z.object({ schoolId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      // Fetch school from DB
+      const school = await ctx.db.query.schools.findFirst({
+        where: (q, { eq }) => eq(q.id, input.schoolId),
+      });
+
+      if (!school) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "School not found",
+        });
+      }
+
+      // Get googlePlaceId from school record or from latest fact
+      let googlePlaceId = school.googlePlaceId;
+
+      if (!googlePlaceId) {
+        // Try to get from facts
+        const placeIdFact = await ctx.db.query.facts.findFirst({
+          where: (q, { and, eq }) =>
+            and(
+              eq(q.schoolId, input.schoolId),
+              eq(q.factKey, FACT_KEYS.GOOGLE_PLACE_ID)
+            ),
+          orderBy: (facts, { desc }) => [desc(facts.asOf)],
+        });
+
+        if (placeIdFact && typeof placeIdFact.factValue === "string") {
+          googlePlaceId = placeIdFact.factValue;
+        }
+      }
+
+      if (!googlePlaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "School does not have a Google Place ID",
+        });
+      }
+
+      // Fetch fresh data from Google Places
+      const candidate = await fetchPlaceById(googlePlaceId);
+
+      if (!candidate) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Place not found in Google Places",
+        });
+      }
+
+      // Update school record
+      await ctx.db
+        .update(schools)
+        .set({
+          lat: candidate.lat || null,
+          lng: candidate.lng || null,
+          googlePlaceId: candidate.placeId || null,
+          phone: candidate.phone || school.phone || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schools.id, input.schoolId));
+
+      // Before creating new facts, check if there's a valid airport code from scraped data
+      // This serves as a fallback if Google Places doesn't have the airport code
+      const latestSnapshot = await ctx.db.query.snapshots.findFirst({
+        where: (q, { eq }) => eq(q.schoolId, input.schoolId),
+        orderBy: (snapshots, { desc }) => [desc(snapshots.asOf)],
+      });
+
+      let scrapedAirportCode: string | null = null;
+      if (latestSnapshot?.rawJson) {
+        const rawJson = latestSnapshot.rawJson as Record<string, unknown>;
+        // Check locations array
+        if (Array.isArray(rawJson.locations) && rawJson.locations.length > 0) {
+          const firstLocation = rawJson.locations[0] as Record<string, unknown>;
+          if (
+            typeof firstLocation.airportCode === "string" &&
+            firstLocation.airportCode !== "USA"
+          ) {
+            scrapedAirportCode = firstLocation.airportCode;
+          }
+        }
+        // Check location string
+        if (!scrapedAirportCode && typeof rawJson.location === "string") {
+          const locationMatch = rawJson.location.match(/\b(K?[A-Z]{3,4})\b/);
+          if (locationMatch && locationMatch[1] && locationMatch[1] !== "USA") {
+            scrapedAirportCode = locationMatch[1];
+          }
+        }
+      }
+
+      // Create new facts with fresh data
+      const now = new Date();
+      const refreshFacts = normalizeGooglePlaces({
+        rating: candidate.rating ?? null,
+        userRatingCount: candidate.userRatingCount ?? null,
+        businessStatus: candidate.businessStatus || null,
+        priceLevel: candidate.priceLevel || null,
+        photos: candidate.photos || null,
+        regularOpeningHours: candidate.regularOpeningHours || null,
+        phone: candidate.phone || null,
+        formattedAddress: candidate.address || null,
+        addressComponents: candidate.addressComponents || null,
+        location: { lat: candidate.lat, lng: candidate.lng },
+        types: candidate.types || null,
+        primaryType: candidate.primaryType || null,
+        displayName: candidate.name || null,
+        placeId: candidate.placeId || null,
+      });
+
+      // If Google Places didn't extract an airport code, but we have one from scraped data, use it
+      const hasAirportCodeFact = refreshFacts.some(
+        (f) => f.factKey === FACT_KEYS.LOCATION_AIRPORT_CODE
+      );
+      if (!hasAirportCodeFact && scrapedAirportCode) {
+        refreshFacts.push({
+          factKey: FACT_KEYS.LOCATION_AIRPORT_CODE,
+          factValue: scrapedAirportCode,
+        });
+      }
+
+      // Before inserting new facts, delete any existing "USA" airport code facts
+      // This cleans up invalid airport codes from previous extractions
+      await ctx.db
+        .delete(facts)
+        .where(
+          and(
+            eq(facts.schoolId, input.schoolId),
+            eq(facts.factKey, FACT_KEYS.LOCATION_AIRPORT_CODE),
+            eq(facts.factValue, "USA")
+          )
+        );
+
+      if (refreshFacts.length > 0) {
+        const factsToInsert = refreshFacts.map((fact) => ({
+          schoolId: input.schoolId,
+          factKey: fact.factKey,
+          factValue: fact.factValue,
+          provenance: "PLACES" as const,
+          asOf: now,
+        }));
+
+        await ctx.db.insert(facts).values(factsToInsert);
+      }
+
+      return {
+        ok: true,
+        schoolId: input.schoolId,
+        updatedAt: now,
       };
     }),
 });

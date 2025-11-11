@@ -333,6 +333,12 @@ export default function SchoolPage() {
                 address={organizedFacts.address}
                 email={organizedFacts.email}
                 phone={organizedFacts.phone}
+                coordinates={
+                  organizedFacts.coordinates ||
+                  (school.lat && school.lng
+                    ? { lat: school.lat, lng: school.lng }
+                    : null)
+                }
               />
 
               {organizedFacts.openingHours && (

@@ -9,6 +9,7 @@ const PLACES_NEARBY_API_URL =
   "https://places.googleapis.com/v1/places:searchNearby";
 const PLACES_TEXT_API_URL =
   "https://places.googleapis.com/v1/places:searchText";
+const PLACES_GET_API_URL = "https://places.googleapis.com/v1/places";
 
 if (!GOOGLE_PLACES_API_KEY) {
   console.warn(
@@ -32,6 +33,8 @@ export interface Candidate {
   currentOpeningHours?: any;
   photos?: Array<{ name: string; widthPx?: number; heightPx?: number }>;
   addressComponents?: any[];
+  types?: string[];
+  primaryType?: string;
 }
 
 export interface SearchParams {
@@ -114,7 +117,7 @@ async function searchPlaces(
 
   try {
     const fieldMask =
-      "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.location,places.id,places.rating,places.userRatingCount,places.businessStatus,places.priceLevel,places.regularOpeningHours,places.currentOpeningHours,places.photos,places.addressComponents";
+      "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.location,places.id,places.rating,places.userRatingCount,places.businessStatus,places.priceLevel,places.regularOpeningHours,places.currentOpeningHours,places.photos,places.addressComponents,places.types,places.primaryType";
 
     let response: Response;
 
@@ -261,11 +264,178 @@ async function searchPlaces(
         candidate.addressComponents = place.addressComponents;
       }
 
+      if (place.types && Array.isArray(place.types)) {
+        candidate.types = place.types;
+      }
+
+      if (place.primaryType) {
+        candidate.primaryType = place.primaryType;
+      }
+
       return candidate;
     });
   } catch (error) {
     console.error("Places API error:", error);
     return [];
+  }
+}
+
+/**
+ * Fetch a place by its Google Place ID
+ * @param placeId - Google Place ID
+ * @returns Candidate object with place data, or null if not found
+ */
+export async function fetchPlaceById(
+  placeId: string
+): Promise<Candidate | null> {
+  if (!GOOGLE_PLACES_API_KEY) {
+    throw new Error("GOOGLE_PLACES_API_KEY is not configured");
+  }
+
+  try {
+    const fieldMask =
+      "displayName,formattedAddress,nationalPhoneNumber,websiteUri,location,id,rating,userRatingCount,businessStatus,priceLevel,regularOpeningHours,currentOpeningHours,photos,addressComponents,types,primaryType";
+
+    // Google Places API (New) GET endpoint format: https://places.googleapis.com/v1/places/{placeId}
+    // The placeId from the API response is the full resource name like "places/ChIJ..."
+    // Since PLACES_GET_API_URL is "https://places.googleapis.com/v1/places",
+    // we need to extract just the ID part (without "places/") to avoid duplication
+    let placeIdPart: string;
+    if (placeId.startsWith("places/")) {
+      // Extract just the ID part after "places/"
+      placeIdPart = placeId.replace(/^places\//, "");
+    } else {
+      // Already just the ID part
+      placeIdPart = placeId;
+    }
+
+    // Construct URL: https://places.googleapis.com/v1/places/{placeIdPart}
+    const url = `${PLACES_GET_API_URL}/${placeIdPart}`;
+    console.log("Fetching place:", {
+      originalPlaceId: placeId,
+      placeIdPart,
+      url,
+    });
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": fieldMask,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `Places API error: ${response.status}`;
+
+      try {
+        const errorData = JSON.parse(errorText);
+        if (errorData.error?.message) {
+          errorMessage = errorData.error.message;
+        }
+        // Log more details for debugging
+        console.error("Places API error details:", {
+          status: response.status,
+          url,
+          originalPlaceId: placeId,
+          placeIdPart,
+          error: errorData.error,
+        });
+      } catch {
+        errorMessage = `Places API error: ${
+          response.status
+        } ${errorText.substring(0, 200)}`;
+        console.error("Places API error (unparseable):", {
+          status: response.status,
+          url,
+          originalPlaceId: placeId,
+          placeIdPart,
+          errorText: errorText.substring(0, 500),
+        });
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+
+    if (!data) {
+      return null;
+    }
+
+    // The GET endpoint returns the place directly, not wrapped in a "places" array
+    const place = data;
+
+    // Transform Places API response to Candidate format
+    const candidate: Candidate = {
+      name: place.displayName?.text || "Unknown",
+      address: place.formattedAddress || "",
+      lat: place.location?.latitude || 0,
+      lng: place.location?.longitude || 0,
+      placeId: place.id,
+    };
+
+    if (place.nationalPhoneNumber) {
+      candidate.phone = place.nationalPhoneNumber;
+    }
+
+    if (place.websiteUri) {
+      candidate.website = place.websiteUri;
+    }
+
+    if (place.rating !== undefined && place.rating !== null) {
+      candidate.rating = place.rating;
+    }
+
+    if (place.userRatingCount !== undefined && place.userRatingCount !== null) {
+      candidate.userRatingCount = place.userRatingCount;
+    }
+
+    if (place.businessStatus) {
+      candidate.businessStatus = place.businessStatus;
+    }
+
+    if (place.priceLevel !== undefined && place.priceLevel !== null) {
+      candidate.priceLevel = place.priceLevel;
+    }
+
+    if (place.regularOpeningHours) {
+      candidate.regularOpeningHours = place.regularOpeningHours;
+    }
+
+    if (place.currentOpeningHours) {
+      candidate.currentOpeningHours = place.currentOpeningHours;
+    }
+
+    if (place.photos && Array.isArray(place.photos)) {
+      candidate.photos = place.photos.map((photo: any) => ({
+        name: photo.name || "",
+        widthPx: photo.widthPx,
+        heightPx: photo.heightPx,
+      }));
+    }
+
+    if (place.addressComponents && Array.isArray(place.addressComponents)) {
+      candidate.addressComponents = place.addressComponents;
+    }
+
+    if (place.types && Array.isArray(place.types)) {
+      candidate.types = place.types;
+    }
+
+    if (place.primaryType) {
+      candidate.primaryType = place.primaryType;
+    }
+
+    return candidate;
+  } catch (error) {
+    console.error("Places API error:", error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    return null;
   }
 }
 

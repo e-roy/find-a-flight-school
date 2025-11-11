@@ -174,6 +174,8 @@ export function DiscoverView() {
       currentOpeningHours: candidate.currentOpeningHours,
       photos: candidate.photos,
       addressComponents: candidate.addressComponents,
+      types: candidate.types,
+      primaryType: candidate.primaryType,
       queryParams: {
         city,
         radiusKm: Number(radiusKm) || 30,

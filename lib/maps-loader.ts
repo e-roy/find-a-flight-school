@@ -28,12 +28,15 @@ export function loadGoogleMaps(): Promise<void> {
     return Promise.resolve();
   }
 
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  // Check for Maps API key first, then fallback to Places API key
+  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const placesApiKey = process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY;
+  const apiKey = mapsApiKey || placesApiKey;
 
   if (!apiKey) {
     return Promise.reject(
       new Error(
-        "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY environment variable is not set"
+        "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY or NEXT_PUBLIC_GOOGLE_PLACES_API_KEY environment variable is not set"
       )
     );
   }
