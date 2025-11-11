@@ -39,19 +39,21 @@ export default function SavedPage() {
     }
   }, [savedError, router]);
 
-  // Fetch full school data for each saved ID in parallel
-  const schoolQueries =
-    savedIds?.map((schoolId) =>
-      trpc.schools.byIdWithFacts.useQuery({ id: schoolId })
-    ) ?? [];
+  // Fetch full school data for all saved IDs in a single batch query
+  const {
+    data: schoolsData,
+    isLoading: isLoadingSchools,
+  } = trpc.schools.byIdsWithFacts.useQuery(
+    { ids: savedIds ?? [] },
+    { enabled: savedIds !== undefined && savedIds.length > 0 }
+  );
 
-  const isLoadingSchools = schoolQueries.some((q) => q.isLoading);
-  const schools = schoolQueries
-    .map((q) => q.data?.school)
+  const schools = schoolsData
+    ?.map((result) => result.school)
     .filter(
       (school): school is NonNullable<typeof school> =>
         school !== null && school !== undefined
-    );
+    ) ?? [];
 
   if (isLoadingSaved || isLoadingSchools) {
     return (

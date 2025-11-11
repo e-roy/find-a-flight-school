@@ -58,8 +58,9 @@ export function AirportInfo({ airportCode }: AirportInfoProps) {
             <p>Airport data not available</p>
             <p className="mt-1">
               Detailed airport information (runways, frequencies, fuel) is not
-              available for this airport. This may be because it's a smaller
-              airport or the data source doesn't have complete records.
+              available for this airport. This may be because it&apos;s a
+              smaller airport or the data source doesn&apos;t have complete
+              records.
             </p>
           </div>
         )}

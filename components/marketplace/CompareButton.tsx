@@ -51,11 +51,16 @@ export function CompareButton({
       // Invalidate comparison query to refetch
       utils.marketplace.compare.get.invalidate();
       
-      const isInComparison = data.schoolIds.includes(schoolId);
-      if (isInComparison) {
-        toast.success("Added to comparison");
-      } else {
+      // data is null when comparison was cleared (empty array)
+      if (data === null) {
         toast.success("Removed from comparison");
+      } else {
+        const isInComparison = data.schoolIds.includes(schoolId);
+        if (isInComparison) {
+          toast.success("Added to comparison");
+        } else {
+          toast.success("Removed from comparison");
+        }
       }
     },
     onError: (error) => {

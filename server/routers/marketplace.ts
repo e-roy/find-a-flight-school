@@ -571,7 +571,7 @@ export const marketplaceRouter = router({
         z.object({
           schoolIds: z
             .array(z.string().uuid())
-            .min(1)
+            .min(0)
             .max(4, "Maximum 4 schools can be compared"),
         })
       )
@@ -589,6 +589,16 @@ export const marketplaceRouter = router({
           .where(eq(comparisons.userId, userId))
           .orderBy(desc(comparisons.createdAt))
           .limit(1);
+
+        // If schoolIds is empty, delete the comparison record
+        if (input.schoolIds.length === 0) {
+          if (existing.length > 0) {
+            await ctx.db
+              .delete(comparisons)
+              .where(eq(comparisons.id, existing[0]!.id));
+          }
+          return null;
+        }
 
         if (existing.length > 0) {
           // Update existing comparison

@@ -105,6 +105,135 @@ export const schoolsRouter = router({
         latestSnapshot: latestSnapshot || null,
       };
     }),
+  byIdsWithFacts: publicProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()) }))
+    .query(async ({ ctx, input }) => {
+      if (input.ids.length === 0) {
+        return [];
+      }
+
+      // Fetch all schools matching the IDs
+      const schoolsList = await ctx.db.query.schools.findMany({
+        where: (q, { inArray }) => inArray(q.id, input.ids),
+      });
+
+      // Create a map for quick lookup
+      const schoolsMap = new Map(schoolsList.map((s) => [s.id, s]));
+
+      // Get all facts for all schools, ordered by asOf descending
+      const allFacts = await ctx.db.query.facts.findMany({
+        where: (q, { inArray }) => inArray(q.schoolId, input.ids),
+        orderBy: (facts, { desc }) => [desc(facts.asOf)],
+      });
+
+      // Group facts by school ID
+      const factsBySchoolId = new Map<string, typeof allFacts>();
+      for (const fact of allFacts) {
+        const schoolFacts = factsBySchoolId.get(fact.schoolId) || [];
+        schoolFacts.push(fact);
+        factsBySchoolId.set(fact.schoolId, schoolFacts);
+      }
+
+      // Get all signals for all schools
+      const allSignals = await ctx.db.query.signalsMock.findMany({
+        where: (q, { inArray }) => inArray(q.schoolId, input.ids),
+      });
+      const signalsBySchoolId = new Map(
+        allSignals.map((s) => [s.schoolId, s])
+      );
+
+      // Get latest snapshots for all schools
+      const allSnapshots = await ctx.db.query.snapshots.findMany({
+        where: (q, { inArray }) => inArray(q.schoolId, input.ids),
+        orderBy: (snapshots, { desc }) => [desc(snapshots.asOf)],
+      });
+
+      // Group snapshots by school ID and get the latest one per school
+      const latestSnapshotsBySchoolId = new Map<string, (typeof allSnapshots)[0]>();
+      for (const snapshot of allSnapshots) {
+        if (!latestSnapshotsBySchoolId.has(snapshot.schoolId)) {
+          latestSnapshotsBySchoolId.set(snapshot.schoolId, snapshot);
+        }
+      }
+
+      // Process each school and return results in the same order as input IDs
+      const results = input.ids
+        .map((id) => {
+          const school = schoolsMap.get(id);
+          if (!school) {
+            return null;
+          }
+
+          const schoolFacts = factsBySchoolId.get(id) || [];
+
+          // Group facts by key to find the most recent fact per key
+          const latestFactsByKey = new Map<string, (typeof schoolFacts)[0]>();
+          const allFactsByKey = new Map<string, (typeof schoolFacts)[0][]>();
+
+          for (const fact of schoolFacts) {
+            // Track latest fact per key (first one encountered is latest due to DESC order)
+            if (!latestFactsByKey.has(fact.factKey)) {
+              latestFactsByKey.set(fact.factKey, fact);
+            }
+
+            // Track all facts per key for staleness detection
+            const keyFacts = allFactsByKey.get(fact.factKey) || [];
+            keyFacts.push(fact);
+            allFactsByKey.set(fact.factKey, keyFacts);
+          }
+
+          // Return all facts (not just latest per key) so we can mark old ones as stale
+          // Add isStale flag to each fact (true if a newer fact exists for the same key)
+          const factsWithStaleFlag = schoolFacts.map((fact) => {
+            const keyFacts = allFactsByKey.get(fact.factKey) || [];
+            // Find the most recent fact for this key (first in array since ordered DESC)
+            const mostRecentFact = keyFacts[0];
+            // Fact is stale if it's not the most recent one for this key
+            const isStale = mostRecentFact
+              ? fact.asOf.getTime() < mostRecentFact.asOf.getTime()
+              : false;
+            return {
+              ...fact,
+              isStale,
+            };
+          });
+
+          // Get latest facts for calculating oldestAsOf and recentlyUpdated
+          const latestFacts = Array.from(latestFactsByKey.values());
+
+          // Calculate oldest asOf date from latest facts per key
+          const oldestAsOf =
+            latestFacts.length > 0
+              ? latestFacts.reduce((oldest, fact) => {
+                  return fact.asOf < oldest ? fact.asOf : oldest;
+                }, latestFacts[0]!.asOf)
+              : null;
+
+          // Check if recently updated (any latest fact updated in last 30 days)
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          const recentlyUpdated =
+            latestFacts.length > 0 &&
+            latestFacts.some((fact) => fact.asOf >= thirtyDaysAgo);
+
+          const signals = signalsBySchoolId.get(id) || null;
+          const latestSnapshot = latestSnapshotsBySchoolId.get(id) || null;
+
+          return {
+            school,
+            facts: factsWithStaleFlag,
+            oldestAsOf,
+            recentlyUpdated,
+            signals,
+            latestSnapshot,
+          };
+        })
+        .filter(
+          (result): result is NonNullable<typeof result> => result !== null
+        );
+
+      return results;
+    }),
   list: publicProcedure
     .input(
       z
