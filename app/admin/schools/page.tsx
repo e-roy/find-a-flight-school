@@ -29,8 +29,41 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { RefreshCw, Play, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { DiscoverView } from "@/components/admin/DiscoverView";
+
+function TruncatedCell({
+  text,
+  maxWidth = "200px",
+}: {
+  text: string;
+  maxWidth?: string;
+}) {
+  const shouldShowTooltip = text && text !== "-";
+
+  if (!shouldShowTooltip) {
+    return <span>{text || "-"}</span>;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="truncate block" style={{ maxWidth }}>
+          {text}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p className="max-w-xs">{text}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export default function SchoolsAdminPage() {
   const [search, setSearch] = useState("");
@@ -233,85 +266,111 @@ export default function SchoolsAdminPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {data.schools.map((school) => (
-                          <TableRow key={school.id}>
-                            <TableCell className="font-medium">
-                              {school.canonicalName}
-                            </TableCell>
-                            <TableCell>{school.domain || "-"}</TableCell>
-                            <TableCell>
-                              {school.addrStd
-                                ? typeof school.addrStd === "object"
-                                  ? `${
-                                      (
-                                        school.addrStd as Record<
-                                          string,
-                                          unknown
+                        {data.schools.map((school) => {
+                          const addressText = school.addrStd
+                            ? typeof school.addrStd === "object"
+                              ? `${
+                                  (school.addrStd as Record<string, unknown>)
+                                    .streetAddress || ""
+                                } ${
+                                  (school.addrStd as Record<string, unknown>)
+                                    .city || ""
+                                } ${
+                                  (school.addrStd as Record<string, unknown>)
+                                    .state || ""
+                                }`.trim() || "-"
+                              : String(school.addrStd)
+                            : "-";
+
+                          return (
+                            <TableRow key={school.id}>
+                              <TableCell className="font-medium">
+                                <TruncatedCell
+                                  text={school.canonicalName}
+                                  maxWidth="250px"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TruncatedCell
+                                  text={school.domain || "-"}
+                                  maxWidth="200px"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TruncatedCell
+                                  text={addressText}
+                                  maxWidth="300px"
+                                />
+                              </TableCell>
+                              <TableCell>{school.phone || "-"}</TableCell>
+                              <TableCell>
+                                {getStatusBadge(school.crawlStatus)}
+                              </TableCell>
+                              <TableCell>
+                                {formatDate(school.lastScraped)}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  {school.googlePlaceId ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() =>
+                                            refreshMutation.mutate({
+                                              schoolId: school.id,
+                                            })
+                                          }
+                                          disabled={refreshMutation.isPending}
                                         >
-                                      ).streetAddress || ""
-                                    } ${
-                                      (
-                                        school.addrStd as Record<
-                                          string,
-                                          unknown
+                                          {refreshMutation.isPending ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <RefreshCw className="h-4 w-4" />
+                                          )}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Refresh Google Places data</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : null}
+                                  {school.domain ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() =>
+                                            handleEnqueue(
+                                              school.id,
+                                              school.domain
+                                            )
+                                          }
+                                          disabled={enqueueMutation.isPending}
                                         >
-                                      ).city || ""
-                                    } ${
-                                      (
-                                        school.addrStd as Record<
-                                          string,
-                                          unknown
-                                        >
-                                      ).state || ""
-                                    }`.trim() || "-"
-                                  : String(school.addrStd)
-                                : "-"}
-                            </TableCell>
-                            <TableCell>{school.phone || "-"}</TableCell>
-                            <TableCell>
-                              {getStatusBadge(school.crawlStatus)}
-                            </TableCell>
-                            <TableCell>
-                              {formatDate(school.lastScraped)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                {school.googlePlaceId ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      refreshMutation.mutate({
-                                        schoolId: school.id,
-                                      })
-                                    }
-                                    disabled={refreshMutation.isPending}
-                                  >
-                                    {refreshMutation.isPending
-                                      ? "Refreshing..."
-                                      : "Refresh"}
-                                  </Button>
-                                ) : null}
-                                {school.domain ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      handleEnqueue(school.id, school.domain)
-                                    }
-                                    disabled={enqueueMutation.isPending}
-                                  >
-                                    Enqueue Crawl
-                                  </Button>
-                                ) : (
-                                  <span className="text-muted-foreground text-sm">
-                                    No domain
-                                  </span>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                                          {enqueueMutation.isPending ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <Play className="h-4 w-4" />
+                                          )}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Enqueue Crawl</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    <span className="text-muted-foreground text-sm">
+                                      No domain
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
