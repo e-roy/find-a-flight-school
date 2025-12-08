@@ -67,6 +67,8 @@ export function LocationContactSection({
     mapQuery
   )}`;
 
+  console.log("airportCode ===>", airportCode);
+
   return (
     <FactSection
       title="Location & Contact"

@@ -34,10 +34,9 @@ export function MapPane({
     if (!mapRef.current) return;
 
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
 
     // Set a timeout to prevent infinite loading
-    timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (isMounted) {
         setError(
           "Map loading timed out. Please check your API key and network connection."

@@ -22,6 +22,8 @@ export function AirportInfo({ airportCode }: AirportInfoProps) {
     }
   );
 
+  console.log("airportData ===>", airportData);
+
   return (
     <Card className="mt-3">
       <CardHeader>
