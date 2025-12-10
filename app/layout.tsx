@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import TRPCProvider from "@/lib/trpc/provider";
@@ -82,6 +83,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      {process.env.NODE_ENV !== "development" && (
+        <>
+          <Script
+            src="https://propintel-eight.vercel.app/api/script/hzc3GsQ88BgtL8jd"
+            strategy="afterInteractive"
+          />
+        </>
+      )}
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
