@@ -85,9 +85,13 @@ export default function RootLayout({
     <html lang="en">
       {process.env.NODE_ENV !== "development" && (
         <>
-          <Script
-            src="https://propintel-eight.vercel.app/api/script/hzc3GsQ88BgtL8jd"
-            strategy="afterInteractive"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://propintel-eight.vercel.app/api/pixel/hGm_1D5K3BDAFScG"
+            alt=""
+            width="1"
+            height="1"
+            style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
           />
         </>
       )}
