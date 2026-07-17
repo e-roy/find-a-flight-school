@@ -87,6 +87,8 @@ export function FinancingBand() {
             ratio="3 / 4"
             radius={18}
             label="Financing image"
+            src="/images/finance-image.png"
+            alt="Student pilot reviewing a training payment plan at a kitchen table, aviation headset beside them"
             prompt="Bright, hopeful photo of a young adult reviewing a payment plan at a kitchen table, aviation headset nearby. Warm daylight, optimistic, photographic, no text."
           />
           <div className="mk-fin__chip">

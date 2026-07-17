@@ -27,6 +27,14 @@ const DEFAULT_SELECT_N = Number(process.env.SELECT_N || 7);
 // failures (observed: rapid-fire crawls silently drop pages).
 const PAGE_FETCH_DELAY_MS = 6000;
 
+// Wall-clock budget for the fetch phase. The route runs under Vercel's
+// maxDuration (300s); stopping early lets extraction run on the pages we have
+// instead of the platform killing the whole crawl. Leaves headroom for the
+// LLM extraction + DB writes that follow.
+const CRAWL_FETCH_BUDGET_MS = Number(
+  process.env.CRAWL_FETCH_BUDGET_MS || 210_000
+);
+
 // Canonical high-value sections — a page whose URL/anchor names one of these is
 // almost certainly worth extracting from. Weighted heavily.
 const HIGH_VALUE = [
@@ -195,12 +203,16 @@ export async function crawlDomain(
   const selectN = opts?.selectN ?? DEFAULT_SELECT_N;
   const url = domain.startsWith("http") ? domain : `https://${domain}`;
 
+  const startedAt = Date.now();
+  const overBudget = () => Date.now() - startedAt > CRAWL_FETCH_BUDGET_MS;
+
   try {
     // The homepage is the single point of total failure — one transient miss
     // would otherwise kill the whole crawl, so give it a few attempts.
     let home = "";
     for (let i = 0; i < 3; i++) {
       if (i > 0) {
+        if (overBudget()) break;
         console.log(`[Cloudflare] homepage empty — retry ${i + 1}/3 for ${url}`);
         await sleep(10000);
       }
@@ -222,6 +234,12 @@ export async function crawlDomain(
     // concurrency / rate limit instead of bouncing off it with backoffs.
     const pages: CrawlPage[] = [{ url, markdown: home }];
     for (const link of picked) {
+      if (overBudget()) {
+        console.warn(
+          `[Cloudflare] ${url}: fetch budget exhausted — extracting from ${pages.length} of ${picked.length + 1} pages`
+        );
+        break;
+      }
       await sleep(PAGE_FETCH_DELAY_MS);
       const markdown = await cfMarkdown(link.url);
       if (markdown.trim()) pages.push({ url: link.url, markdown });
