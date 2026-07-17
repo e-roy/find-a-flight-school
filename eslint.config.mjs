@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design handoff reference bundle (HTML/Babel prototypes, not app code).
+    "thoughts/**",
   ]),
 ]);
 

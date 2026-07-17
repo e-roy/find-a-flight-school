@@ -1,192 +1,109 @@
 import { db } from "@/lib/db";
 import { crawlQueue } from "@/db/schema/crawl_queue";
 import { snapshots } from "@/db/schema/snapshots";
-import { startAsyncCrawl, extractFromDomain } from "@/lib/firecrawl";
-import { eq, asc } from "drizzle-orm";
+import { facts } from "@/db/schema/facts";
+import { crawlDomain } from "@/lib/cloudflare-crawl";
+import { processCrawlResult } from "@/lib/extract";
+import { normalizeSnapshot } from "@/lib/normalize";
+import { eq } from "drizzle-orm";
 
-export async function processCrawlQueue(limit: number = 20) {
-  // Pick up to limit pending jobs (ordered by scheduled_at)
-  const pendingJobs = await db
-    .select()
-    .from(crawlQueue)
-    .where(eq(crawlQueue.status, "pending"))
-    .orderBy(asc(crawlQueue.scheduledAt))
-    .limit(limit);
+type CrawlJob = typeof crawlQueue.$inferSelect;
 
-  const results = {
-    processed: 0,
-    queued: 0,
-    completed: 0,
-    failed: 0,
-    errors: [] as Array<{ id: string; error: string }>,
-  };
+export interface CrawlJobResult {
+  status: "completed" | "failed";
+  error?: string;
+  pages?: number;
+}
 
-  // Construct webhook URL
-  // Use WEBHOOK_BASE_URL if set (for ngrok/testing), otherwise use NEXTAUTH_URL or VERCEL_URL
-  // This allows testing webhooks without breaking authentication (NEXTAUTH_URL stays for auth)
-  const webhookBaseUrl =
-    process.env.WEBHOOK_BASE_URL ||
-    process.env.NEXTAUTH_URL ||
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000");
-  const webhookUrl = `${webhookBaseUrl}/api/crawl/webhook`;
+/**
+ * Crawl + extract a single queued job synchronously, write a snapshot on success,
+ * and update the job's status. Returns a small summary. Never throws — failures are
+ * captured in the returned result and the job is marked `failed` (no auto-retry).
+ */
+export async function processJob(job: CrawlJob): Promise<CrawlJobResult> {
+  try {
+    await db
+      .update(crawlQueue)
+      .set({ status: "processing", updatedAt: new Date() })
+      .where(eq(crawlQueue.id, job.id));
 
-  // Check if webhook URL is publicly accessible (not localhost in production)
-  const isLocalhost =
-    webhookBaseUrl.includes("localhost") ||
-    webhookBaseUrl.includes("127.0.0.1");
-  const useWebhook = !isLocalhost || process.env.FORCE_WEBHOOK === "true";
+    const crawl = await crawlDomain(job.domain);
+    if (!crawl.success || !crawl.pages) {
+      const error = crawl.error || "Crawl returned no pages";
+      await markFailed(job, error);
+      return { status: "failed", error };
+    }
 
-  // Process each job
-  for (const job of pendingJobs) {
-    results.processed++;
-
-    try {
-      // In development with localhost, use synchronous mode as fallback
-      if (!useWebhook) {
-        console.log(
-          `[Crawl Worker] Using synchronous mode for local development (job ${job.id})`
-        );
-        console.log(
-          `[Crawl Worker] Tip: Set WEBHOOK_BASE_URL to an ngrok URL (e.g., https://abc123.ngrok.io) or FORCE_WEBHOOK=true to test webhooks`
-        );
-
-        // Update status to 'processing'
-        await db
-          .update(crawlQueue)
-          .set({
-            status: "processing",
-            updatedAt: new Date(),
-          })
-          .where(eq(crawlQueue.id, job.id));
-
-        // Call Firecrawl extract synchronously
-        const extractResult = await extractFromDomain(job.domain);
-
-        if (extractResult.success && extractResult.data) {
-          // Create snapshot with raw_json and extract_confidence
-          const snapshotId = crypto.randomUUID();
-
-          await db.insert(snapshots).values({
-            id: snapshotId,
-            schoolId: job.schoolId,
-            domain: job.domain,
-            asOf: new Date(),
-            rawJson: extractResult.data.extracted,
-            extractConfidence: extractResult.data.confidence ?? null,
-          });
-
-          // Mark job as 'completed'
-          await db
-            .update(crawlQueue)
-            .set({
-              status: "completed",
-              updatedAt: new Date(),
-            })
-            .where(eq(crawlQueue.id, job.id));
-
-          results.completed++;
-          console.log(
-            `[Crawl Worker] Successfully completed crawl job ${job.id} for domain ${job.domain}`
-          );
-        } else {
-          // Extraction failed - mark as failed immediately (no retry)
-          await db
-            .update(crawlQueue)
-            .set({
-              status: "failed",
-              attempts: job.attempts + 1,
-              updatedAt: new Date(),
-            })
-            .where(eq(crawlQueue.id, job.id));
-
-          results.failed++;
-          const errorMessage =
-            extractResult.error || "Unknown extraction error";
-          console.error(
-            `[Crawl Worker] Extraction failed for job ${job.id}:`,
-            errorMessage
-          );
-          results.errors.push({
-            id: job.id,
-            error: errorMessage,
-          });
-        }
-      } else {
-        // Submit to Firecrawl asynchronously with webhook
-        console.log(
-          `[Crawl Worker] Submitting async crawl with webhook for job ${job.id} (webhook: ${webhookUrl})`
-        );
-        const result = await startAsyncCrawl(job.domain, webhookUrl, {
-          queueId: job.id,
-          schoolId: job.schoolId,
-          domain: job.domain,
-        });
-
-        if (result.success) {
-          // Update status to 'queued' (waiting for Firecrawl webhook)
-          await db
-            .update(crawlQueue)
-            .set({
-              status: "queued",
-              firecrawlJobId: result.jobId || null,
-              updatedAt: new Date(),
-            })
-            .where(eq(crawlQueue.id, job.id));
-
-          results.queued++;
-          console.log(
-            `[Crawl Worker] Successfully queued crawl job ${job.id} for domain ${job.domain}`
-          );
-        } else {
-          // Failed to submit - mark as failed immediately (no retry)
-          await db
-            .update(crawlQueue)
-            .set({
-              status: "failed",
-              attempts: job.attempts + 1,
-              updatedAt: new Date(),
-            })
-            .where(eq(crawlQueue.id, job.id));
-
-          results.failed++;
-          const errorMessage = result.error || "Failed to submit crawl job";
-          console.error(
-            `[Crawl Worker] Failed to queue job ${job.id}:`,
-            errorMessage
-          );
-          results.errors.push({
-            id: job.id,
-            error: errorMessage,
-          });
-        }
-      }
-    } catch (error) {
-      // Handle individual job failures gracefully - mark as failed immediately (no retry)
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      console.error(
-        `[Crawl Worker] Exception processing job ${job.id}:`,
-        errorMessage
-      );
-
+    const extract = await processCrawlResult(crawl.pages);
+    if (extract.success && extract.data) {
+      const asOf = new Date();
+      await db.insert(snapshots).values({
+        id: crypto.randomUUID(),
+        schoolId: job.schoolId,
+        domain: job.domain,
+        asOf,
+        rawJson: extract.data.extracted,
+        extractConfidence: extract.data.confidence ?? null,
+      });
+      await publishFacts(job.schoolId, extract.data.extracted, asOf);
       await db
         .update(crawlQueue)
-        .set({
-          status: "failed",
-          attempts: job.attempts + 1,
-          updatedAt: new Date(),
-        })
+        .set({ status: "completed", updatedAt: new Date() })
         .where(eq(crawlQueue.id, job.id));
-
-      results.failed++;
-      results.errors.push({
-        id: job.id,
-        error: errorMessage,
-      });
+      console.log(`[Crawl] Completed job ${job.id} for ${job.domain}`);
+      return { status: "completed", pages: crawl.pages.length };
     }
-  }
 
-  return results;
+    const error = extract.error || "Unknown extraction error";
+    await markFailed(job, error);
+    return { status: "failed", error };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error occurred";
+    await markFailed(job, message);
+    return { status: "failed", error: message };
+  }
+}
+
+/**
+ * Publish the crawl: normalize the extracted snapshot into CRAWL-provenance
+ * facts. Non-fatal — the snapshot is already stored and facts can be re-derived
+ * from it, so a normalization failure logs loudly but doesn't fail the crawl.
+ */
+async function publishFacts(schoolId: string, rawJson: unknown, asOf: Date) {
+  try {
+    const normalized = normalizeSnapshot(
+      rawJson as Record<string, unknown>,
+      asOf
+    );
+    if (normalized.length === 0) return;
+    // Offset asOf per row so repeated keys (e.g. one fact per program type)
+    // don't collide on the (schoolId, factKey, asOf) primary key.
+    const rows = normalized.map((f, i) => ({
+      schoolId,
+      factKey: f.factKey,
+      factValue: f.factValue,
+      provenance: "CRAWL" as const,
+      asOf: new Date(asOf.getTime() + i),
+    }));
+    await db.insert(facts).values(rows);
+    console.log(`[Crawl] Published ${rows.length} facts for school ${schoolId}`);
+  } catch (error) {
+    console.error(
+      `[Crawl] Failed to publish facts for school ${schoolId} (snapshot saved; facts can be re-derived):`,
+      error
+    );
+  }
+}
+
+async function markFailed(job: CrawlJob, error: string) {
+  console.error(`[Crawl] Failed job ${job.id} for ${job.domain}: ${error}`);
+  await db
+    .update(crawlQueue)
+    .set({
+      status: "failed",
+      attempts: job.attempts + 1,
+      error: error.slice(0, 500),
+      updatedAt: new Date(),
+    })
+    .where(eq(crawlQueue.id, job.id));
 }

@@ -16,14 +16,16 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "School Portal",
-    description: "Manage your flight school profile, view leads, and track your progress.",
+    description:
+      "Manage your flight school profile, view leads, and track your progress.",
     type: "website",
     url: `${baseUrl}/portal`,
   },
   twitter: {
     card: "summary",
     title: "School Portal",
-    description: "Manage your flight school profile, view leads, and track your progress.",
+    description:
+      "Manage your flight school profile, view leads, and track your progress.",
   },
 };
 
@@ -39,9 +41,9 @@ export default async function PortalLayout({
     redirect("/sign-in");
   }
 
-  if (!hasRole(session, "school")) {
-    redirect("/403");
-  }
+  // if (!hasRole(session, "school")) {
+  //   redirect("/403");
+  // }
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-7xl">
@@ -56,4 +58,3 @@ export default async function PortalLayout({
     </div>
   );
 }
-

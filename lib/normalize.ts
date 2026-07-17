@@ -18,7 +18,7 @@ export interface NormalizedFact {
 
 /**
  * Parse raw JSON from a snapshot into normalized facts
- * @param rawJson - The extracted JSON from Firecrawl
+ * @param rawJson - The extracted JSON from the crawl/extract pipeline
  * @param asOf - The timestamp from the snapshot (used for context, not returned)
  * @returns Array of normalized facts ready for insertion
  */

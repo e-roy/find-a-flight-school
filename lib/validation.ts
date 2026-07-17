@@ -12,22 +12,6 @@ export const SeedRowSchema = z.object({
 
 export type SeedRow = z.infer<typeof SeedRowSchema>;
 
-export const CrawlEnqueueQuerySchema = z.object({
-  school_id: z.string().min(1, "school_id is required"),
-});
-
-export const CrawlWorkerQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-export const NormalizeRunQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-export const RefreshRunQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-});
-
 // Claim schemas
 export const ClaimRequestSchema = z.object({
   schoolId: z.string().min(1, "schoolId is required"),
@@ -128,12 +112,3 @@ export const FinancingIntentSchema = z.object({
 });
 
 export type FinancingIntent = z.infer<typeof FinancingIntentSchema>;
-
-// Lead creation schema
-export const LeadCreateSchema = z.object({
-  schoolId: z.string().uuid("Invalid school ID"),
-  email: z.string().email("Invalid email address"),
-  message: z.string().min(10, "Message must be at least 10 characters"),
-});
-
-export type LeadCreate = z.infer<typeof LeadCreateSchema>;

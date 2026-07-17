@@ -9,10 +9,6 @@ import { FACT_KEYS } from "@/types";
 
 export default function PortalPage() {
   const { data: profileData, isLoading: isLoadingProfile } = trpc.portal.profile.get.useQuery();
-  const { data: leadsData, isLoading: isLoadingLeads } = trpc.portal.leads.list.useQuery({
-    limit: 1,
-    offset: 0,
-  });
 
   // Calculate completeness
   const expectedFactKeys = [
@@ -39,9 +35,7 @@ export default function PortalPage() {
     (completenessCount / expectedFactKeys.length) * 100
   );
 
-  const leadsCount = leadsData?.total ?? 0;
-
-  if (isLoadingProfile || isLoadingLeads) {
+  if (isLoadingProfile) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -58,21 +52,7 @@ export default function PortalPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Leads Count Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Inbound Leads</CardTitle>
-            <CardDescription>Total leads received from students</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold mb-4">{leadsCount}</div>
-            <Button asChild variant="outline">
-              <Link href="/portal/leads">View All Leads</Link>
-            </Button>
-          </CardContent>
-        </Card>
-
+      <div className="grid gap-6">
         {/* Profile Completeness Card */}
         <Card>
           <CardHeader>
@@ -109,9 +89,6 @@ export default function PortalPage() {
           <div className="flex flex-wrap gap-4">
             <Button asChild variant="outline">
               <Link href="/portal/profile">Edit Profile</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/portal/leads">View Leads</Link>
             </Button>
             <Button asChild variant="outline">
               <Link href="/portal/analytics">Analytics</Link>

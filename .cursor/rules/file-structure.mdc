@@ -15,7 +15,7 @@ A marketplace where students can **search, compare, and contact** flight schools
 - **Framework:** Next.js (App Router) + **TypeScript (strict)**
 - **API:** tRPC v10 for interactive calls; REST route handlers for workers/cron
 - **DB/ORM:** Postgres (Neon/Supabase) + Drizzle ORM + `pgvector`
-- **Crawl/Extract:** Firecrawl API
+- **Crawl/Extract:** Cloudflare Browser Rendering + OpenAI
 - **Validation:** Zod
 - **Auth:** next-auth (Auth.js) + Postgres adapter
 - **UI:** Tailwind + shadcn/ui
@@ -105,15 +105,12 @@ A marketplace where students can **search, compare, and contact** flight schools
 │   │   └── page.tsx                          # Forbidden page
 │   ├── api/
 │   │   ├── health/db/route.ts
-│   │   ├── crawl/enqueue/route.ts
-│   │   ├── crawl/worker/route.ts
 │   │   ├── normalize/run/route.ts
 │   │   ├── match/route.ts
 │   │   ├── claim/request/route.ts
 │   │   ├── claim/verify/route.ts
 │   │   ├── claim/edit/route.ts
 │   │   ├── embeddings/generate/route.ts
-│   │   ├── refresh/run/route.ts
 │   │   ├── financing/intent/route.ts
 │   │   └── trpc/[trpc]/route.ts              # tRPC handler
 │   ├── layout.tsx
@@ -148,7 +145,8 @@ A marketplace where students can **search, compare, and contact** flight schools
 │   ├── middleware.ts                          # helpers used by layouts
 │   ├── resolver.ts
 │   ├── dedupe.ts
-│   ├── firecrawl.ts
+│   ├── cloudflare-crawl.ts                     # Cloudflare Browser Rendering crawler
+│   ├── extract.ts                              # LLM structured extraction
 │   ├── normalize.ts
 │   ├── embeddings.ts
 │   ├── validation.ts
@@ -265,11 +263,12 @@ All **mutations** must check session **and role**.
 
 ```env
 DATABASE_URL=
-FIRECRAWL_API_KEY=
 OPENAI_API_KEY=
 RESEND_API_KEY=
 NEXTAUTH_SECRET=
 NEXTAUTH_URL=
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
 ```
 
 ---

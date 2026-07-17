@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { loadGoogleMaps } from "@/lib/maps-loader";
+import { GOOGLE_MAPS_MAP_ID, loadGoogleMaps } from "@/lib/maps-loader";
+import { circleMarkerElement } from "@/lib/maps-marker";
 import type { Candidate } from "@/lib/discovery/google";
 
 interface MapPaneProps {
@@ -21,9 +22,10 @@ export function MapPane({
 }: MapPaneProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
   const circleRef = useRef<google.maps.Circle | null>(null);
-  const centerMarkerRef = useRef<google.maps.Marker | null>(null);
+  const centerMarkerRef =
+    useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const infoWindowsRef = useRef<google.maps.InfoWindow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +62,7 @@ export function MapPane({
               const map = new window.google.maps.Map(mapRef.current, {
                 center,
                 zoom: 10,
+                mapId: GOOGLE_MAPS_MAP_ID,
                 mapTypeControl: true,
                 streetViewControl: true,
                 fullscreenControl: true,
@@ -106,36 +109,31 @@ export function MapPane({
 
   // Update center marker
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google?.maps) return;
+    if (!mapInstanceRef.current || !window.google?.maps || !mapReady) return;
 
     // Remove existing center marker
     if (centerMarkerRef.current) {
-      centerMarkerRef.current.setMap(null);
+      centerMarkerRef.current.map = null;
     }
 
     // Create center marker
-    centerMarkerRef.current = new window.google.maps.Marker({
-      position: center,
-      map: mapInstanceRef.current,
-      title: "Search Center",
-      icon: {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillColor: "#4285F4",
-        fillOpacity: 1,
-        strokeColor: "#FFFFFF",
-        strokeWeight: 2,
-      },
-      zIndex: 1000,
-    });
+    centerMarkerRef.current = new window.google.maps.marker.AdvancedMarkerElement(
+      {
+        position: center,
+        map: mapInstanceRef.current,
+        title: "Search Center",
+        content: circleMarkerElement("#4285F4", 16),
+        zIndex: 1000,
+      }
+    );
 
     // Update map center
     mapInstanceRef.current.setCenter(center);
-  }, [center]);
+  }, [center, mapReady]);
 
   // Update radius circle
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google?.maps) return;
+    if (!mapInstanceRef.current || !window.google?.maps || !mapReady) return;
 
     // Remove existing circle
     if (circleRef.current) {
@@ -153,14 +151,14 @@ export function MapPane({
       center: center,
       radius: radiusKm * 1000, // Convert km to meters
     });
-  }, [center, radiusKm]);
+  }, [center, radiusKm, mapReady]);
 
   // Update candidate markers
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google?.maps || !mapReady) return;
 
     // Clear existing markers and info windows
-    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current.forEach((marker) => (marker.map = null));
     infoWindowsRef.current.forEach((infoWindow) => infoWindow.close());
     markersRef.current = [];
     infoWindowsRef.current = [];
@@ -173,28 +171,16 @@ export function MapPane({
         selectedCandidateId === candidate.placeId ||
         selectedCandidateId === `${candidate.lat},${candidate.lng}`;
 
-      const marker = new window.google.maps.Marker({
+      const marker = new window.google.maps.marker.AdvancedMarkerElement({
         position: { lat: candidate.lat, lng: candidate.lng },
         map: mapInstanceRef.current!,
         title: candidate.name,
-        icon: isSelected
-          ? {
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 10,
-              fillColor: "#EA4335",
-              fillOpacity: 1,
-              strokeColor: "#FFFFFF",
-              strokeWeight: 2,
-            }
-          : {
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 8,
-              fillColor: "#34A853",
-              fillOpacity: 1,
-              strokeColor: "#FFFFFF",
-              strokeWeight: 2,
-            },
+        content: circleMarkerElement(
+          isSelected ? "#EA4335" : "#34A853",
+          isSelected ? 20 : 16
+        ),
         zIndex: isSelected ? 1000 : 100,
+        gmpClickable: true,
       });
 
       // Create info window
@@ -226,7 +212,7 @@ export function MapPane({
       // Add click handler
       marker.addListener("click", () => {
         onCandidateSelect(candidate);
-        infoWindow.open(mapInstanceRef.current!, marker);
+        infoWindow.open({ anchor: marker, map: mapInstanceRef.current! });
       });
 
       markersRef.current.push(marker);
@@ -271,10 +257,10 @@ export function MapPane({
       );
 
       if (markerIndex >= 0 && infoWindowsRef.current[markerIndex]) {
-        infoWindowsRef.current[markerIndex].open(
-          mapInstanceRef.current,
-          markersRef.current[markerIndex]
-        );
+        infoWindowsRef.current[markerIndex].open({
+          anchor: markersRef.current[markerIndex],
+          map: mapInstanceRef.current,
+        });
       }
     }
   }, [selectedCandidateId, candidates]);

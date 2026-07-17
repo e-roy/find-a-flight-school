@@ -57,6 +57,70 @@ async function getLatestFactsForSchool(
   return latestFactsByKey;
 }
 
+function strArray(v: unknown): string[] {
+  return Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === "string" && x.length > 0)
+    : [];
+}
+
+/**
+ * Build the fact summary shown on result cards. Falls back to the latest
+ * snapshot's scraped data (programs/fleet) when the normalized facts table is
+ * sparse, and surfaces the airport code + a consistent financing flag.
+ */
+function extractCardFacts(
+  latestFacts: Map<string, typeof facts.$inferSelect>,
+  latestSnapshot: typeof snapshots.$inferSelect | null | undefined
+) {
+  const snap =
+    latestSnapshot?.rawJson && typeof latestSnapshot.rawJson === "object"
+      ? (latestSnapshot.rawJson as Record<string, unknown>)
+      : null;
+
+  let programs = Array.from(latestFacts.values())
+    .filter((f) => f.factKey === FACT_KEYS.PROGRAM_TYPE)
+    .map((f) => f.factValue)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (programs.length === 0 && snap) programs = strArray(snap.programs);
+
+  const costBand = latestFacts.get(FACT_KEYS.COST_BAND)?.factValue;
+  const fleetFact = latestFacts.get(FACT_KEYS.FLEET_AIRCRAFT)?.factValue;
+  let fleetAircraft = Array.isArray(fleetFact)
+    ? (fleetFact as string[])
+    : undefined;
+  if ((!fleetAircraft || fleetAircraft.length === 0) && snap) {
+    const snapFleet = strArray(snap.fleet);
+    if (snapFleet.length > 0) fleetAircraft = snapFleet;
+  }
+
+  const rating = latestFacts.get(FACT_KEYS.RATING)?.factValue;
+  const ratingCount = latestFacts.get(FACT_KEYS.RATING_COUNT)?.factValue;
+  const photos = latestFacts.get(FACT_KEYS.PHOTOS)?.factValue;
+  const airportCode = latestFacts.get(
+    FACT_KEYS.LOCATION_AIRPORT_CODE
+  )?.factValue;
+
+  let financingAvailable = false;
+  if (snap) {
+    const url = snap.financingUrl;
+    financingAvailable =
+      (typeof url === "string" && url.length > 0 && url !== "null") ||
+      snap.financing === true ||
+      snap.financingAvailable === true;
+  }
+
+  return {
+    programs,
+    costBand: typeof costBand === "string" ? costBand : undefined,
+    fleetAircraft: fleetAircraft?.length ? fleetAircraft : undefined,
+    rating: typeof rating === "number" ? rating : undefined,
+    ratingCount: typeof ratingCount === "number" ? ratingCount : undefined,
+    photos: Array.isArray(photos) ? photos : undefined,
+    financingAvailable,
+    airportCode: typeof airportCode === "string" ? airportCode : undefined,
+  };
+}
+
 /**
  * Filter schools based on input criteria
  * Returns array of school IDs that match all filters
@@ -338,50 +402,9 @@ export const marketplaceRouter = router({
                 orderBy: (snapshots, { desc }) => [desc(snapshots.asOf)],
               });
 
-              // Extract financing URL from snapshot
-              let financingAvailable = false;
-              if (latestSnapshot?.rawJson) {
-                const snapshotData = latestSnapshot.rawJson as Record<
-                  string,
-                  unknown
-                >;
-                const financingUrl = snapshotData.financingUrl;
-                financingAvailable =
-                  typeof financingUrl === "string" && financingUrl.length > 0;
-              }
-
-              // Extract key facts for card display
-              const programs = Array.from(latestFacts.values())
-                .filter((f) => f.factKey === FACT_KEYS.PROGRAM_TYPE)
-                .map((f) => f.factValue)
-                .filter(
-                  (v): v is string => typeof v === "string" && v.length > 0
-                );
-
-              const costBand = latestFacts.get(FACT_KEYS.COST_BAND)?.factValue;
-              const fleetAircraft = latestFacts.get(
-                FACT_KEYS.FLEET_AIRCRAFT
-              )?.factValue;
-              const rating = latestFacts.get(FACT_KEYS.RATING)?.factValue;
-              const ratingCount = latestFacts.get(
-                FACT_KEYS.RATING_COUNT
-              )?.factValue;
-              const photos = latestFacts.get(FACT_KEYS.PHOTOS)?.factValue;
-
               return {
                 ...school,
-                facts: {
-                  programs,
-                  costBand: typeof costBand === "string" ? costBand : undefined,
-                  fleetAircraft: Array.isArray(fleetAircraft)
-                    ? fleetAircraft
-                    : undefined,
-                  rating: typeof rating === "number" ? rating : undefined,
-                  ratingCount:
-                    typeof ratingCount === "number" ? ratingCount : undefined,
-                  photos: Array.isArray(photos) ? photos : undefined,
-                  financingAvailable,
-                },
+                facts: extractCardFacts(latestFacts, latestSnapshot),
               };
             })
           );
@@ -432,50 +455,9 @@ export const marketplaceRouter = router({
                 orderBy: (snapshots, { desc }) => [desc(snapshots.asOf)],
               });
 
-              // Extract financing URL from snapshot
-              let financingAvailable = false;
-              if (latestSnapshot?.rawJson) {
-                const snapshotData = latestSnapshot.rawJson as Record<
-                  string,
-                  unknown
-                >;
-                const financingUrl = snapshotData.financingUrl;
-                financingAvailable =
-                  typeof financingUrl === "string" && financingUrl.length > 0;
-              }
-
-              // Extract key facts for card display
-              const programs = Array.from(latestFacts.values())
-                .filter((f) => f.factKey === FACT_KEYS.PROGRAM_TYPE)
-                .map((f) => f.factValue)
-                .filter(
-                  (v): v is string => typeof v === "string" && v.length > 0
-                );
-
-              const costBand = latestFacts.get(FACT_KEYS.COST_BAND)?.factValue;
-              const fleetAircraft = latestFacts.get(
-                FACT_KEYS.FLEET_AIRCRAFT
-              )?.factValue;
-              const rating = latestFacts.get(FACT_KEYS.RATING)?.factValue;
-              const ratingCount = latestFacts.get(
-                FACT_KEYS.RATING_COUNT
-              )?.factValue;
-              const photos = latestFacts.get(FACT_KEYS.PHOTOS)?.factValue;
-
               return {
                 ...school,
-                facts: {
-                  programs,
-                  costBand: typeof costBand === "string" ? costBand : undefined,
-                  fleetAircraft: Array.isArray(fleetAircraft)
-                    ? fleetAircraft
-                    : undefined,
-                  rating: typeof rating === "number" ? rating : undefined,
-                  ratingCount:
-                    typeof ratingCount === "number" ? ratingCount : undefined,
-                  photos: Array.isArray(photos) ? photos : undefined,
-                  financingAvailable,
-                },
+                facts: extractCardFacts(latestFacts, latestSnapshot),
               };
             })
           );

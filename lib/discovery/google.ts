@@ -5,8 +5,6 @@
 
 const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 const GEOCODING_API_URL = "https://maps.googleapis.com/maps/api/geocode/json";
-const PLACES_NEARBY_API_URL =
-  "https://places.googleapis.com/v1/places:searchNearby";
 const PLACES_TEXT_API_URL =
   "https://places.googleapis.com/v1/places:searchText";
 const PLACES_GET_API_URL = "https://places.googleapis.com/v1/places";
@@ -107,7 +105,7 @@ async function geocodeCity(city: string): Promise<GeocodeResult | null> {
  * Search for places using Google Places API (New)
  */
 async function searchPlaces(
-  center: GeocodeResult,
+  center: GeocodeResult | null,
   radiusMeters: number,
   query?: string
 ): Promise<Candidate[]> {
@@ -119,59 +117,34 @@ async function searchPlaces(
     const fieldMask =
       "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.location,places.id,places.rating,places.userRatingCount,places.businessStatus,places.priceLevel,places.regularOpeningHours,places.currentOpeningHours,places.photos,places.addressComponents,places.types,places.primaryType";
 
-    let response: Response;
-
-    // If query is provided, use searchText with location bias
-    if (query) {
-      const requestBody = {
-        textQuery: query,
-        maxResultCount: 20,
-        locationBias: {
-          circle: {
-            center: {
-              latitude: center.lat,
-              longitude: center.lng,
-            },
-            radius: radiusMeters,
-          },
+    // Always use Text Search. Nearby Search's `includedTypes` does not support
+    // "flight_school", so location-only searches default to a generic
+    // "flight school" query. A geocoded center, when provided, biases results.
+    const textQuery =
+      query && query.trim().length > 0 ? query.trim() : "flight school";
+    const requestBody: Record<string, unknown> = {
+      textQuery,
+      maxResultCount: 20,
+    };
+    if (center) {
+      requestBody.locationBias = {
+        circle: {
+          center: { latitude: center.lat, longitude: center.lng },
+          // Text Search circle radius is capped at 50,000 m by the API.
+          radius: Math.min(radiusMeters, 50000),
         },
       };
-
-      response = await fetch(PLACES_TEXT_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
-          "X-Goog-FieldMask": fieldMask,
-        },
-        body: JSON.stringify(requestBody),
-      });
-    } else {
-      // Use searchNearby with includedTypes for flight schools
-      const requestBody = {
-        includedTypes: ["flight_school"],
-        maxResultCount: 20,
-        locationRestriction: {
-          circle: {
-            center: {
-              latitude: center.lat,
-              longitude: center.lng,
-            },
-            radius: radiusMeters,
-          },
-        },
-      };
-
-      response = await fetch(PLACES_NEARBY_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
-          "X-Goog-FieldMask": fieldMask,
-        },
-        body: JSON.stringify(requestBody),
-      });
     }
+
+    const response = await fetch(PLACES_TEXT_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": fieldMask,
+      },
+      body: JSON.stringify(requestBody),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -278,6 +251,15 @@ async function searchPlaces(
     console.error("Places API error:", error);
     return [];
   }
+}
+
+/**
+ * Free-text place search with no location restriction. Accepts a name, a place,
+ * or both (e.g. "Sunrise Aviation Houston TX"); Google infers location from the
+ * text. Returns candidates with coordinates for mapping.
+ */
+export async function searchByQuery(query: string): Promise<Candidate[]> {
+  return searchPlaces(null, 0, query);
 }
 
 /**

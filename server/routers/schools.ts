@@ -1,13 +1,7 @@
-import { router, publicProcedure } from "@/lib/trpc/trpc";
+import { router, publicProcedure, adminProcedure } from "@/lib/trpc/trpc";
 import { z } from "zod";
 import { schools } from "@/db/schema/schools";
-import { facts } from "@/db/schema/facts";
-import { signalsMock } from "@/db/schema/signals_mock";
-import { leads } from "@/db/schema/leads";
-import { crawlQueue } from "@/db/schema/crawl_queue";
-// import { snapshots } from "@/db/schema/snapshots";
-import { LeadCreateSchema } from "@/lib/validation";
-import { desc, eq, sql, and, or, ilike, isNotNull } from "drizzle-orm";
+import { desc, sql, or, ilike } from "drizzle-orm";
 import { fetchFAAAirportData } from "@/lib/faa-data";
 
 export const schoolsRouter = router({
@@ -96,11 +90,18 @@ export const schoolsRouter = router({
         orderBy: (snapshots, { desc }) => [desc(snapshots.asOf)],
       });
 
+      // Has a verified owner claim? Drives the Community-Verified tier.
+      const verifiedClaim = await ctx.db.query.claims.findFirst({
+        where: (c, { eq, and }) =>
+          and(eq(c.schoolId, input.id), eq(c.status, "VERIFIED")),
+      });
+
       return {
         school,
         facts: factsWithStaleFlag,
         oldestAsOf,
         recentlyUpdated,
+        claimed: !!verifiedClaim,
         signals: signals || null,
         latestSnapshot: latestSnapshot || null,
       };
@@ -267,36 +268,7 @@ export const schoolsRouter = router({
         return allSchools.slice(offset, offset + limit);
       }
     }),
-  lead: {
-    create: publicProcedure
-      .input(LeadCreateSchema)
-      .mutation(async ({ ctx, input }) => {
-        // Verify school exists
-        const school = await ctx.db.query.schools.findFirst({
-          where: (q, { eq }) => eq(q.id, input.schoolId),
-        });
-
-        if (!school) {
-          throw new Error("School not found");
-        }
-
-        // Insert lead into database
-        const leadId = crypto.randomUUID();
-        await ctx.db.insert(leads).values({
-          id: leadId,
-          schoolId: input.schoolId,
-          userId: ctx.session?.user?.id || null,
-          payloadJson: {
-            email: input.email,
-            message: input.message,
-          },
-          createdAt: new Date(),
-        });
-
-        return { success: true, id: leadId };
-      }),
-  },
-  listWithCrawlStatus: publicProcedure
+  listWithCrawlStatus: adminProcedure
     .input(
       z
         .object({
@@ -304,14 +276,7 @@ export const schoolsRouter = router({
           offset: z.number().min(0).default(0),
           search: z.string().optional(),
           crawlStatus: z
-            .enum([
-              "pending",
-              "queued",
-              "processing",
-              "completed",
-              "failed",
-              "never",
-            ])
+            .enum(["pending", "processing", "completed", "failed", "never"])
             .optional(),
           lastScrapedFilter: z
             .enum(["last7days", "last30days", "never"])
@@ -341,13 +306,31 @@ export const schoolsRouter = router({
           updatedAt: schools.updatedAt,
           crawlStatus: sql<string | null>`
             (
-              SELECT cq.status 
+              SELECT cq.status
               FROM crawl_queue cq
               WHERE cq.school_id = schools.id
-              ORDER BY cq.created_at DESC 
+              ORDER BY cq.created_at DESC
               LIMIT 1
             )
           `.as("crawlStatus"),
+          crawlUpdatedAt: sql<Date | null>`
+            (
+              SELECT cq.updated_at
+              FROM crawl_queue cq
+              WHERE cq.school_id = schools.id
+              ORDER BY cq.created_at DESC
+              LIMIT 1
+            )
+          `.as("crawlUpdatedAt"),
+          crawlError: sql<string | null>`
+            (
+              SELECT cq.error
+              FROM crawl_queue cq
+              WHERE cq.school_id = schools.id
+              ORDER BY cq.created_at DESC
+              LIMIT 1
+            )
+          `.as("crawlError"),
           lastScraped: sql<Date | null>`
             (
               SELECT s.as_of 
@@ -367,7 +350,8 @@ export const schoolsRouter = router({
           or(
             ilike(schools.canonicalName, searchTerm),
             ilike(schools.domain, searchTerm),
-            ilike(schools.addrStd, searchTerm)
+            // addrStd is jsonb — cast to text so ILIKE works (matches city/state/street)
+            sql`${schools.addrStd}::text ILIKE ${searchTerm}`
           )
         ) as typeof query;
       }
@@ -432,7 +416,7 @@ export const schoolsRouter = router({
   }),
       getAirportData: publicProcedure
         .input(z.object({ airportCode: z.string().min(1) }))
-        .query(async ({ ctx, input }) => {
+        .query(async ({ input }) => {
           const airportData = await fetchFAAAirportData(input.airportCode);
           return airportData;
         }),

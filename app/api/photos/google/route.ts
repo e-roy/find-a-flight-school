@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { photoHealth } from "@/db/schema/photo_health";
 
 const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
+
+/**
+ * Record that a school's Google photo failed to load (expired reference) so the
+ * refresh cron can prioritize it. Best-effort — never blocks image serving.
+ */
+async function flagBrokenPhoto(schoolId: string): Promise<void> {
+  try {
+    await db
+      .insert(photoHealth)
+      .values({ schoolId, status: "broken", lastCheckedAt: new Date() })
+      .onConflictDoUpdate({
+        target: photoHealth.schoolId,
+        set: { status: "broken", lastCheckedAt: new Date() },
+      });
+  } catch (error) {
+    console.error("Failed to record broken photo:", error);
+  }
+}
 
 /**
  * Proxy route for Google Places photos
@@ -9,6 +29,7 @@ const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const photoName = searchParams.get("name");
+  const schoolId = searchParams.get("sid");
   const maxWidth = searchParams.get("maxWidth") || "800";
   const maxHeight = searchParams.get("maxHeight") || "600";
 
@@ -34,6 +55,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
+      // The stored Google photo resource name has likely expired. Flag the
+      // school so the refresh cron re-fetches a fresh reference.
+      if (schoolId) {
+        await flagBrokenPhoto(schoolId);
+      }
       return NextResponse.json(
         { error: "Failed to fetch photo" },
         { status: response.status }

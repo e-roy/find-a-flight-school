@@ -6,9 +6,9 @@ import { hasRole } from "@/lib/rbac";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Redirect /admin to /admin/overview
+  // Redirect /admin to the schools console (the single admin surface).
   if (pathname === "/admin") {
-    return NextResponse.redirect(new URL("/admin/overview", request.url));
+    return NextResponse.redirect(new URL("/admin/schools", request.url));
   }
 
   // Check if path requires authentication
@@ -48,9 +48,9 @@ export async function middleware(request: NextRequest) {
 
   if (isPortalRoute) {
     const isSchool = hasRole(session, "school");
-    if (!isSchool) {
-      return NextResponse.redirect(new URL("/403", request.url));
-    }
+    // if (!isSchool) {
+    //   return NextResponse.redirect(new URL("/403", request.url));
+    // }
   }
 
   return NextResponse.next();

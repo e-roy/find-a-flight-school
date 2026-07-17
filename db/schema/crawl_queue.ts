@@ -4,7 +4,6 @@ import {
   timestamp,
   integer,
   index,
-  jsonb,
 } from "drizzle-orm/pg-core";
 import { schools } from "./schools";
 
@@ -17,13 +16,13 @@ export const crawlQueue = pgTable(
       .references(() => schools.id),
     domain: text("domain").notNull(),
     status: text("status", {
-      enum: ["pending", "queued", "processing", "completed", "failed"],
+      enum: ["pending", "processing", "completed", "failed"],
     })
       .notNull()
       .default("pending"),
     attempts: integer("attempts").notNull().default(0),
-    firecrawlJobId: text("firecrawl_job_id"), // Store Firecrawl job ID for tracking
-    accumulatedPages: jsonb("accumulated_pages"), // Store pages from crawl.page events
+    // Why the latest attempt failed; null while pending/processing/completed.
+    error: text("error"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
