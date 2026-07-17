@@ -1,4 +1,6 @@
 export * from "./schools";
+export * from "./api_usage";
+export * from "./photo_health";
 export * from "./sources";
 export * from "./snapshots";
 export * from "./facts";

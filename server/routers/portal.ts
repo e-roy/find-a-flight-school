@@ -129,48 +129,6 @@ export const portalRouter = router({
         };
       }),
   },
-  leads: {
-    list: protectedProcedure
-      .input(
-        z
-          .object({
-            limit: z.number().min(1).max(100).default(20),
-            offset: z.number().min(0).default(0),
-          })
-          .optional()
-      )
-      .query(async ({ ctx, input }) => {
-        const schoolId = await getSchoolIdForUser(ctx);
-        const limit = input?.limit ?? 20;
-        const offset = input?.offset ?? 0;
-
-        // Use standard query builder for proper pagination
-        const { count } = await import("drizzle-orm");
-
-        // Get total count
-        const totalResult = await ctx.db
-          .select({ count: count() })
-          .from(leads)
-          .where(eq(leads.schoolId, schoolId));
-        const total = totalResult[0]?.count ?? 0;
-
-        // Get paginated leads
-        const paginatedLeads = await ctx.db
-          .select()
-          .from(leads)
-          .where(eq(leads.schoolId, schoolId))
-          .orderBy(desc(leads.createdAt))
-          .limit(limit)
-          .offset(offset);
-
-        return {
-          leads: paginatedLeads,
-          total,
-          limit,
-          offset,
-        };
-      }),
-  },
   analytics: {
     get: protectedProcedure.query(async ({ ctx }) => {
       const schoolId = await getSchoolIdForUser(ctx);

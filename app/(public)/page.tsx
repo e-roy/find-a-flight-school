@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
-import { Hero } from "@/components/landing/Hero";
-import { TrustStrip } from "@/components/landing/TrustStrip";
-import { Problem } from "@/components/landing/Problem";
-import { HowItWorks } from "@/components/landing/HowItWorks";
-import { TrustTiers } from "@/components/landing/TrustTiers";
-import { MatchingAI } from "@/components/landing/MatchingAI";
-import { Financing } from "@/components/landing/Financing";
-import { CTABand } from "@/components/landing/CTABand";
-import { FAQ } from "@/components/landing/FAQ";
-import { Footer } from "@/components/landing/Footer";
+import { Hero } from "@/components/mk/landing/Hero";
+import { Featured } from "@/components/mk/landing/Featured";
+import {
+  TrustStrip,
+  FinancingBand,
+  HowItWorks,
+  Tiers,
+  CTABand,
+} from "@/components/mk/landing/sections";
 
 const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
@@ -58,14 +57,11 @@ export default function LandingPage() {
     <>
       <Hero />
       <TrustStrip />
-      <Problem />
+      <FinancingBand />
       <HowItWorks />
-      <TrustTiers />
-      <MatchingAI />
-      <Financing />
+      <Tiers />
+      <Featured />
       <CTABand />
-      <FAQ />
-      <Footer />
     </>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { loadGoogleMaps } from "@/lib/maps-loader";
+import { GOOGLE_MAPS_MAP_ID, loadGoogleMaps } from "@/lib/maps-loader";
 
 interface GoogleMapEmbedProps {
   lat: number;
@@ -18,7 +18,9 @@ export function GoogleMapEmbed({
 }: GoogleMapEmbedProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markerRef = useRef<google.maps.Marker | null>(null);
+  const markerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,10 +28,9 @@ export function GoogleMapEmbed({
     if (!mapRef.current) return;
 
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
 
     // Set a timeout to prevent infinite loading
-    timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (isMounted) {
         setError("Map loading timed out. Please check your API key and network connection.");
         setIsLoading(false);
@@ -51,6 +52,7 @@ export function GoogleMapEmbed({
               const map = new window.google.maps.Map(mapRef.current, {
                 center: { lat, lng },
                 zoom,
+                mapId: GOOGLE_MAPS_MAP_ID,
                 mapTypeControl: true,
                 streetViewControl: false,
                 fullscreenControl: true,
@@ -59,12 +61,14 @@ export function GoogleMapEmbed({
 
               mapInstanceRef.current = map;
 
-              // Add marker for school location
-              const marker = new window.google.maps.Marker({
-                position: { lat, lng },
-                map,
-                title: schoolName,
-              });
+              // Add marker for school location (default red pin)
+              const marker = new window.google.maps.marker.AdvancedMarkerElement(
+                {
+                  position: { lat, lng },
+                  map,
+                  title: schoolName,
+                }
+              );
 
               markerRef.current = marker;
 
@@ -103,7 +107,7 @@ export function GoogleMapEmbed({
       isMounted = false;
       // Clean up marker
       if (markerRef.current) {
-        markerRef.current.setMap(null);
+        markerRef.current.map = null;
         markerRef.current = null;
       }
       // Map instance will be cleaned up automatically when component unmounts

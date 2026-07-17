@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
+import {
+  Bricolage_Grotesque,
+  Hanken_Grotesk,
+  Space_Mono,
+} from "next/font/google";
 import "./globals.css";
+import "./marketplace.css";
+import "./portal.css";
 import TRPCProvider from "@/lib/trpc/provider";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -13,6 +19,28 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Marketplace redesign brand fonts
+const fontDisplay = Bricolage_Grotesque({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
+
+const fontText = Hanken_Grotesk({
+  variable: "--font-text",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+const fontMono = Space_Mono({
+  variable: "--font-mono-brand",
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  display: "swap",
 });
 
 const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
@@ -96,7 +124,7 @@ export default function RootLayout({
         </>
       )}
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${fontDisplay.variable} ${fontText.variable} ${fontMono.variable} antialiased`}
       >
         <TRPCProvider>{children}</TRPCProvider>
         <Toaster />

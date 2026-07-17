@@ -2,118 +2,89 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { trpc } from "@/lib/trpc/client";
-import { ResultsList } from "@/components/marketplace/ResultsList";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { trpc } from "@/lib/trpc/client";
+import { SchoolCard } from "@/components/mk/SchoolCard";
+import { useMkState } from "@/components/mk/use-mk-state";
+import { buttonClass } from "@/components/core/Button";
+import { organizeFactsByCategory } from "@/lib/utils-facts";
+import { extractFinancingInfo } from "@/lib/utils-financing";
+import { mkFromFacts } from "@/lib/mk";
+
+function isUnauthorized(
+  error: { data?: { code?: string } | null; message?: string } | null
+) {
+  return (
+    !!error &&
+    (error.data?.code === "UNAUTHORIZED" ||
+      !!error.message?.toLowerCase().includes("unauthorized"))
+  );
+}
 
 export default function SavedPage() {
   const router = useRouter();
+  const { isAuthed, isSaved, toggleSave } = useMkState();
 
-  // Fetch saved school IDs
   const {
     data: savedIds,
     isLoading: isLoadingSaved,
     error: savedError,
-  } = trpc.marketplace.saved.list.useQuery(undefined, {
-    retry: false,
-  });
+  } = trpc.marketplace.saved.list.useQuery(undefined, { retry: false });
 
-  // Redirect to sign-in if not authenticated
   useEffect(() => {
-    if (
-      savedError &&
-      (savedError.data?.code === "UNAUTHORIZED" ||
-        savedError.message?.includes("UNAUTHORIZED") ||
-        savedError.message?.includes("Unauthorized"))
-    ) {
-      const signInUrl = `/sign-in?callbackUrl=${encodeURIComponent("/saved")}`;
-      router.push(signInUrl);
+    if (isUnauthorized(savedError)) {
+      router.push(`/sign-in?callbackUrl=${encodeURIComponent("/saved")}`);
     }
   }, [savedError, router]);
 
-  // Fetch full school data for all saved IDs in a single batch query
-  const {
-    data: schoolsData,
-    isLoading: isLoadingSchools,
-  } = trpc.schools.byIdsWithFacts.useQuery(
-    { ids: savedIds ?? [] },
-    { enabled: savedIds !== undefined && savedIds.length > 0 }
-  );
-
-  const schools = schoolsData
-    ?.map((result) => result.school)
-    .filter(
-      (school): school is NonNullable<typeof school> =>
-        school !== null && school !== undefined
-    ) ?? [];
-
-  if (isLoadingSaved || isLoadingSchools) {
-    return (
-      <div className="container mx-auto py-12 px-4 max-w-6xl">
-        <h1 className="text-3xl font-bold mb-4">Saved Schools</h1>
-        <div className="space-y-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-32 w-full" />
-          ))}
-        </div>
-      </div>
+  const { data: schoolsData, isLoading: isLoadingSchools } =
+    trpc.schools.byIdsWithFacts.useQuery(
+      { ids: savedIds ?? [] },
+      { enabled: savedIds !== undefined && savedIds.length > 0 }
     );
-  }
 
-  if (
-    savedError &&
-    (savedError.data?.code === "UNAUTHORIZED" ||
-      savedError.message?.includes("UNAUTHORIZED") ||
-      savedError.message?.includes("Unauthorized"))
-  ) {
-    // Error handling - redirect should happen in useEffect
-    return (
-      <div className="container mx-auto py-12 px-4 max-w-6xl">
-        <h1 className="text-3xl font-bold mb-4">Saved Schools</h1>
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>Authentication Required</EmptyTitle>
-            <EmptyDescription>
-              Please sign in to view your saved schools.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
+  const mkSchools = (schoolsData ?? [])
+    .filter((d) => d.school !== null && d.school !== undefined)
+    .map((d) =>
+      mkFromFacts({
+        school: d.school,
+        facts: organizeFactsByCategory(d.facts),
+        signals: d.signals,
+        financing: extractFinancingInfo(d.latestSnapshot)
+          ? { available: true }
+          : undefined,
+      })
     );
-  }
 
-  if (!savedIds || savedIds.length === 0) {
-    return (
-      <div className="container mx-auto py-12 px-4 max-w-6xl">
-        <h1 className="text-3xl font-bold mb-4">Saved Schools</h1>
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>No saved schools</EmptyTitle>
-            <EmptyDescription>
-              Start exploring flight schools and save your favorites to compare
-              them later.
-            </EmptyDescription>
-          </EmptyHeader>
-          <Button asChild variant="default" className="mt-4">
-            <Link href="/search">Browse Schools</Link>
-          </Button>
-        </Empty>
-      </div>
-    );
-  }
+  const loading =
+    isLoadingSaved || (savedIds && savedIds.length > 0 && isLoadingSchools);
 
   return (
-    <div className="container mx-auto py-12 px-4 max-w-6xl">
-      <h1 className="text-3xl font-bold mb-6">Saved Schools</h1>
-      <ResultsList schools={schools} isLoading={false} />
+    <div className="mk-shell mk-plain">
+      <h1 className="mk-plain__title">Saved schools</h1>
+      <p className="mk-plain__lead">
+        {mkSchools.length} school{mkSchools.length === 1 ? "" : "s"} saved for
+        later.
+      </p>
+
+      {loading ? (
+        <p className="mk-block__note">Loading…</p>
+      ) : mkSchools.length > 0 ? (
+        <div className="mk-grid">
+          {mkSchools.map((s) => (
+            <SchoolCard
+              key={s.id}
+              school={s}
+              saved={isAuthed ? isSaved(s.id) : undefined}
+              onToggleSave={isAuthed ? () => toggleSave(s.id) : undefined}
+            />
+          ))}
+        </div>
+      ) : (
+        <Link href="/search" className={buttonClass("primary", "md")}>
+          Find schools to save
+        </Link>
+      )}
     </div>
   );
 }

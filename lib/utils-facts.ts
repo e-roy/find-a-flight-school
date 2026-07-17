@@ -147,7 +147,7 @@ export function organizeFactsByCategory(
 
   const photosFact = latestFactsByKey.get(FACT_KEYS.PHOTOS);
   const photos = photosFact
-    ? extractPhotoUrls(photosFact.factValue)
+    ? extractPhotoUrls(photosFact.factValue, photosFact.schoolId)
     : undefined;
 
   const openingHoursFact = latestFactsByKey.get(FACT_KEYS.OPENING_HOURS);

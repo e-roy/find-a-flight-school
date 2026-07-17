@@ -43,3 +43,18 @@ next-env.d.ts
 # docs
 docs/
 .docs/
+
+# design-sync (claude.ai/design) — staged scripts, build output, machine state.
+# The durable set under .design-sync/ (config.json, NOTES.md, conventions.md,
+# previews/, overrides/, ds-theme.src.css, prepare.mjs) stays committed.
+/.ds-sync/
+/ds-bundle/
+/.design-sync/.cache/
+/.design-sync/learnings/
+/.design-sync/node_modules
+/.design-sync/ds-entry.ts
+/.design-sync/ds-theme.css
+/dist/
+
+# Claude Code local memory — machine-local notes, never commit
+/memory/

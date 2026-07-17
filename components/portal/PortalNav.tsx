@@ -10,7 +10,6 @@ export function PortalNav() {
   const tabs = [
     { name: "Overview", href: "/portal" },
     { name: "Profile", href: "/portal/profile" },
-    { name: "Leads", href: "/portal/leads" },
     { name: "Analytics", href: "/portal/analytics" },
   ];
 

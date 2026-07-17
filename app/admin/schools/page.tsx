@@ -2,615 +2,371 @@
 
 import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { RefreshCw, Play, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Building2,
+  Globe,
+  Search,
+  RefreshCw,
+  ChevronRight,
+  MapPin,
+  Plus,
+} from "lucide-react";
+import Link from "next/link";
+import { Button, buttonClass } from "@/components/core/Button";
+import { Input } from "@/components/core/Input";
 import { DiscoverView } from "@/components/admin/DiscoverView";
+import { PublicAdditionsView } from "@/components/admin/PublicAdditionsView";
+import { useCrawlLock } from "@/components/admin/CrawlLockContext";
+import { STALE_CRAWL_MS } from "@/lib/crawl-constants";
+import {
+  SchoolDrawer,
+  ConfirmDialog,
+  StatusChip,
+  type AdminSchoolRow,
+} from "@/components/admin/SchoolDrawer";
 
-function TruncatedCell({
-  text,
-  maxWidth = "200px",
-}: {
-  text: string;
-  maxWidth?: string;
-}) {
-  const shouldShowTooltip = text && text !== "-";
+type Row = AdminSchoolRow & { googlePlaceId: string | null };
 
-  if (!shouldShowTooltip) {
-    return <span>{text || "-"}</span>;
+// Synchronous crawls finish within minutes; a pending/processing row older than
+// STALE_CRAWL_MS means the server died mid-crawl, so fall back to "pending" to
+// keep the crawl button available instead of showing "Crawling…" forever.
+function deriveStatus(
+  crawlStatus: string | null,
+  crawlUpdatedAt: Date | string | null
+): "published" | "crawling" | "pending" | "failed" {
+  if (crawlStatus === "completed") return "published";
+  if (crawlStatus === "failed") return "failed";
+  if (crawlStatus === "processing" || crawlStatus === "pending") {
+    const age = crawlUpdatedAt
+      ? Date.now() - new Date(crawlUpdatedAt).getTime()
+      : Infinity;
+    if (age < STALE_CRAWL_MS) return "crawling";
   }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="truncate block" style={{ maxWidth }}>
-          {text}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p className="max-w-xs">{text}</p>
-      </TooltipContent>
-    </Tooltip>
-  );
+  return "pending";
 }
+function daysSince(v: Date | string | null): number {
+  if (!v) return Infinity;
+  return Math.floor((Date.now() - new Date(v).getTime()) / 86400000);
+}
+function fmtDate(v: Date | string | null): string {
+  if (!v) return "Never";
+  return new Date(v).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+function relative(v: Date | string | null): string {
+  const n = daysSince(v);
+  if (!isFinite(n)) return "Never";
+  if (n <= 0) return "today";
+  if (n === 1) return "yesterday";
+  if (n < 30) return `${n} days ago`;
+  const m = Math.floor(n / 30);
+  return `${m} month${m === 1 ? "" : "s"} ago`;
+}
+
+const TABS = [
+  { id: "all", label: "All" },
+  { id: "pending", label: "Discovered" },
+  { id: "published", label: "Published" },
+] as const;
 
 export default function SchoolsAdminPage() {
+  const [view, setView] = useState<"list" | "discover" | "public">("list");
+  const [tab, setTab] = useState<"all" | "pending" | "published">("all");
   const [search, setSearch] = useState("");
-  const [crawlStatus, setCrawlStatus] = useState<string | undefined>(undefined);
-  const [lastScrapedFilter, setLastScrapedFilter] = useState<
-    string | undefined
-  >(undefined);
-  const [page, setPage] = useState(0);
-  const limit = 50;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [confirmSchool, setConfirmSchool] = useState<Row | null>(null);
+  const [crawlingId, setCrawlingId] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } =
-    trpc.schools.listWithCrawlStatus.useQuery({
-      limit,
-      offset: page * limit,
-      search: search || undefined,
-      crawlStatus: crawlStatus as
-        | "pending"
-        | "queued"
-        | "processing"
-        | "completed"
-        | "failed"
-        | "never"
-        | undefined,
-      lastScrapedFilter: lastScrapedFilter as
-        | "last7days"
-        | "last30days"
-        | "never"
-        | undefined,
-    });
-
-  const enqueueMutation = trpc.crawlQueue.enqueue.useMutation({
-    onSuccess: () => {
-      toast.success("School enqueued for crawl");
-      refetch();
-    },
-    onError: (error) => {
-      toast.error(`Failed to enqueue: ${error.message}`);
-    },
+  const { data, isLoading, refetch } = trpc.schools.listWithCrawlStatus.useQuery({
+    limit: 50,
+    offset: 0,
+    search: search || undefined,
   });
 
-  const refreshMutation = trpc.seeds.refreshGooglePlaces.useMutation({
+  const { isCrawling, withCrawlLock } = useCrawlLock();
+  const crawlMutation = trpc.crawlQueue.crawlSchool.useMutation();
+  const removeMutation = trpc.seeds.removeSchool.useMutation({
     onSuccess: () => {
-      toast.success("Google Places data refreshed");
+      toast.success("School deleted");
+      setSelectedId(null);
+      setConfirmSchool(null);
       refetch();
     },
-    onError: (error) => {
-      toast.error(`Failed to refresh: ${error.message}`);
-    },
+    onError: (e) => toast.error(`Failed to delete: ${e.message}`),
   });
 
-  const handleEnqueue = async (schoolId: string, domain: string | null) => {
+  const rows = (data?.schools ?? []) as Row[];
+  const withStatus = rows.map((r) => {
+    const status = deriveStatus(r.crawlStatus, r.crawlUpdatedAt);
+    const stale = status === "published" && daysSince(r.lastScraped) > 30;
+    return { row: r, status, stale };
+  });
+  const counts = {
+    // Failed crawls live under the Discovered tab so they stay visible.
+    pending: withStatus.filter(
+      (s) => s.status === "pending" || s.status === "failed"
+    ).length,
+    published: withStatus.filter((s) => s.status === "published").length,
+    stale: withStatus.filter((s) => s.stale).length,
+  };
+  const visible = withStatus.filter((s) => {
+    if (tab === "all") return true;
+    if (tab === "pending") return s.status === "pending" || s.status === "failed";
+    return s.status === tab;
+  });
+
+  function handleCrawl(schoolId: string, domain: string | null) {
     if (!domain) {
-      toast.error("School does not have a domain");
+      toast.error("School has no domain to crawl");
       return;
     }
-    // Construct URL from domain (prepend https:// if not present)
-    const url = domain.startsWith("http") ? domain : `https://${domain}`;
-    enqueueMutation.mutate({ schoolId, domain: url });
-  };
-
-  const formatDate = (date: Date | null) => {
-    if (!date) return "Never";
-    return new Date(date).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+    setCrawlingId(schoolId);
+    void withCrawlLock(async () => {
+      try {
+        const res = await crawlMutation.mutateAsync({ schoolId });
+        if (res.status === "completed") {
+          toast.success(`Crawled ${res.pages ?? 0} pages — published`);
+        } else {
+          toast.error(res.error || "Crawl failed");
+        }
+      } catch (e) {
+        // tRPC-level rejections (e.g. another crawl already running server-side)
+        toast.error(e instanceof Error ? e.message : "Crawl failed");
+      } finally {
+        setCrawlingId(null);
+        refetch();
+      }
     });
-  };
+  }
 
-  const getStatusBadge = (status: string | null) => {
-    if (!status) {
-      return <Badge variant="outline">Never</Badge>;
-    }
-    const variant =
-      status === "completed"
-        ? "default"
-        : status === "failed"
-        ? "destructive"
-        : status === "processing"
-        ? "secondary"
-        : "outline";
-    return <Badge variant={variant}>{status}</Badge>;
-  };
-
-  const [activeTab, setActiveTab] = useState("view");
+  const selected = withStatus.find((s) => s.row.id === selectedId);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Schools Management</h2>
-        <p className="text-muted-foreground">
-          View, discover, and add schools to the system
-        </p>
-      </div>
+    <div className="mk-root">
+      <div className="mk-admin">
+        <div className="mk-admin__bar">
+          <div className="mk-shell mk-admin__barin">
+            <Link href="/" title="Back to site" style={{ flex: "0 0 auto", display: "inline-flex" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-mark.svg" width={34} height={34} alt="Find a Flight School" />
+            </Link>
+            <div>
+              <div className="mk-admin__eyebrow">Internal · Operations</div>
+              <h1 className="mk-admin__title">Schools</h1>
+            </div>
+            <div className="mk-admin__nav">
+              <button
+                className={"mk-admin__navbtn" + (view === "list" ? " is-on" : "")}
+                onClick={() => setView("list")}
+              >
+                <Building2 size={16} /> Schools
+              </button>
+              <button
+                className={"mk-admin__navbtn" + (view === "discover" ? " is-on" : "")}
+                onClick={() => setView("discover")}
+              >
+                <Search size={16} /> Discover
+              </button>
+              <button
+                className={"mk-admin__navbtn" + (view === "public" ? " is-on" : "")}
+                onClick={() => setView("public")}
+              >
+                <Globe size={16} /> Public adds
+              </button>
+            </div>
+            <div className="mk-admin__stats">
+              <div className="mk-admin__stat">
+                <span className="mk-admin__statn">{counts.pending}</span>
+                <span className="mk-admin__statl">Discovered</span>
+              </div>
+              <div className="mk-admin__stat">
+                <span className="mk-admin__statn">{counts.published}</span>
+                <span className="mk-admin__statl">Published</span>
+              </div>
+              <div className="mk-admin__stat">
+                <span
+                  className="mk-admin__statn"
+                  style={{ color: counts.stale ? "var(--warning)" : undefined }}
+                >
+                  {counts.stale}
+                </span>
+                <span className="mk-admin__statl">Stale</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="view">View Schools</TabsTrigger>
-          <TabsTrigger value="discover">Discover Schools</TabsTrigger>
-          <TabsTrigger value="add">Add School</TabsTrigger>
-        </TabsList>
+        <div className="mk-shell mk-admin__body">
+          {view === "discover" && <DiscoverView />}
+          {view === "public" && <PublicAdditionsView />}
 
-        <TabsContent value="view" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Filters</CardTitle>
-              <CardDescription>
-                Filter schools by status and search
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Search</label>
+          {view === "list" && (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "center",
+                  marginBottom: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div className="mk-admin__tabs" style={{ marginBottom: 0 }}>
+                  {TABS.map((t) => {
+                    const n =
+                      t.id === "all"
+                        ? withStatus.length
+                        : counts[t.id as "pending" | "published"];
+                    return (
+                      <button
+                        key={t.id}
+                        className={"mk-admin__tab" + (tab === t.id ? " is-on" : "")}
+                        onClick={() => setTab(t.id)}
+                      >
+                        {t.label} <span className="pt-count">{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ marginLeft: "auto", width: 240 }}>
                   <Input
-                    placeholder="Search by name, domain, or city..."
+                    icon={<Search size={16} />}
+                    placeholder="Search schools…"
                     value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                      setPage(0);
-                    }}
+                    onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Crawl Status</label>
-                  <Select
-                    value={crawlStatus || "all"}
-                    onValueChange={(value) => {
-                      setCrawlStatus(value === "all" ? undefined : value);
-                      setPage(0);
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All statuses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="queued">Queued</SelectItem>
-                      <SelectItem value="processing">Processing</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                      <SelectItem value="never">Never</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Last Scraped</label>
-                  <Select
-                    value={lastScrapedFilter || "all"}
-                    onValueChange={(value) => {
-                      setLastScrapedFilter(value === "all" ? undefined : value);
-                      setPage(0);
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="last7days">Last 7 days</SelectItem>
-                      <SelectItem value="last30days">Last 30 days</SelectItem>
-                      <SelectItem value="never">Never</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Link href="/add-school" className={buttonClass("secondary", "md")}>
+                  <Plus size={16} /> Add manually
+                </Link>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Schools</CardTitle>
-              <CardDescription>
-                {data?.total !== undefined
-                  ? `Total: ${data.total.toLocaleString()}`
-                  : "Loading..."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="text-center py-8">Loading...</div>
-              ) : !data?.schools || data.schools.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No schools found
+              <div className="mk-tbl">
+                <div className="mk-tbl__head">
+                  <span className="mk-tbl__h">School</span>
+                  <span className="mk-tbl__h">Source</span>
+                  <span className="mk-tbl__h">Last crawl</span>
+                  <span className="mk-tbl__h">Status</span>
+                  <span className="mk-tbl__h mk-tbl__h--right">Actions</span>
                 </div>
-              ) : (
-                <>
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Domain</TableHead>
-                          <TableHead>Address</TableHead>
-                          <TableHead>Phone</TableHead>
-                          <TableHead>Crawl Status</TableHead>
-                          <TableHead>Last Scraped</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.schools.map((school) => {
-                          const addressText = school.addrStd
-                            ? typeof school.addrStd === "object"
-                              ? `${
-                                  (school.addrStd as Record<string, unknown>)
-                                    .streetAddress || ""
-                                } ${
-                                  (school.addrStd as Record<string, unknown>)
-                                    .city || ""
-                                } ${
-                                  (school.addrStd as Record<string, unknown>)
-                                    .state || ""
-                                }`.trim() || "-"
-                              : String(school.addrStd)
-                            : "-";
-
-                          return (
-                            <TableRow key={school.id}>
-                              <TableCell className="font-medium">
-                                <TruncatedCell
-                                  text={school.canonicalName}
-                                  maxWidth="250px"
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <TruncatedCell
-                                  text={school.domain || "-"}
-                                  maxWidth="200px"
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <TruncatedCell
-                                  text={addressText}
-                                  maxWidth="300px"
-                                />
-                              </TableCell>
-                              <TableCell>{school.phone || "-"}</TableCell>
-                              <TableCell>
-                                {getStatusBadge(school.crawlStatus)}
-                              </TableCell>
-                              <TableCell>
-                                {formatDate(school.lastScraped)}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2">
-                                  {school.googlePlaceId ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() =>
-                                            refreshMutation.mutate({
-                                              schoolId: school.id,
-                                            })
-                                          }
-                                          disabled={refreshMutation.isPending}
-                                        >
-                                          {refreshMutation.isPending ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                          ) : (
-                                            <RefreshCw className="h-4 w-4" />
-                                          )}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Refresh Google Places data</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ) : null}
-                                  {school.domain ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() =>
-                                            handleEnqueue(
-                                              school.id,
-                                              school.domain
-                                            )
-                                          }
-                                          disabled={enqueueMutation.isPending}
-                                        >
-                                          {enqueueMutation.isPending ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                          ) : (
-                                            <Play className="h-4 w-4" />
-                                          )}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Enqueue Crawl</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">
-                                      No domain
-                                    </span>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                {isLoading ? (
+                  <div style={{ padding: "48px 0", textAlign: "center", color: "var(--text-muted)" }}>
+                    Loading…
                   </div>
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {page * limit + 1}-
-                      {Math.min((page + 1) * limit, data.total || 0)} of{" "}
-                      {data.total || 0}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage((p) => Math.max(0, p - 1))}
-                        disabled={page === 0}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage((p) => p + 1)}
-                        disabled={!data?.hasMore}
-                      >
-                        Next
-                      </Button>
-                    </div>
+                ) : visible.length === 0 ? (
+                  <div style={{ padding: "48px 0", textAlign: "center", color: "var(--text-muted)" }}>
+                    No schools in this view.
                   </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                ) : (
+                  visible.map(({ row, status, stale }) => {
+                    const addr = (row.addrStd ?? {}) as Record<string, unknown>;
+                    const loc = [addr.city, addr.state]
+                      .filter((x) => typeof x === "string")
+                      .join(", ");
+                    const crawling = crawlingId === row.id || status === "crawling";
+                    return (
+                      <div
+                        key={row.id}
+                        className={"mk-trow" + (selectedId === row.id ? " is-sel" : "")}
+                        onClick={() => setSelectedId(row.id)}
+                      >
+                        <div>
+                          <div className="mk-trow__name">{row.canonicalName}</div>
+                          <div className="mk-trow__sub">
+                            <MapPin size={13} /> {loc || "—"}
+                          </div>
+                        </div>
+                        <div className="mk-trow__via">
+                          <Globe size={16} />
+                          {row.googlePlaceId ? "Google" : "Manual"}
+                        </div>
+                        <div className="mk-trow__crawl">
+                          {row.lastScraped ? (
+                            <>
+                              <span className="is-mono">{fmtDate(row.lastScraped)}</span>
+                              <span className={"mk-trow__rel" + (stale ? " is-stale" : "")}>
+                                {relative(row.lastScraped)}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="mk-trow__rel" style={{ color: "var(--text-faint)" }}>
+                              Never
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <StatusChip status={status} stale={stale} error={row.crawlError} />
+                        </div>
+                        <div className="mk-trow__act" onClick={(e) => e.stopPropagation()}>
+                          {crawling ? (
+                            <span className="mk-crawling">
+                              <RefreshCw size={15} /> Crawling…
+                            </span>
+                          ) : (
+                            <Button
+                              variant={status === "published" && !stale ? "secondary" : "primary"}
+                              size="sm"
+                              disabled={isCrawling}
+                              leftIcon={
+                                status === "published" || status === "failed" ? (
+                                  <RefreshCw size={15} />
+                                ) : (
+                                  <Globe size={15} />
+                                )
+                              }
+                              onClick={() => handleCrawl(row.id, row.domain)}
+                            >
+                              {status === "published"
+                                ? "Re-crawl"
+                                : status === "failed"
+                                  ? "Retry crawl"
+                                  : "Crawl & publish"}
+                            </Button>
+                          )}
+                          <button
+                            className="mk-iconbtn"
+                            title="Details"
+                            onClick={() => setSelectedId(row.id)}
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
-        <TabsContent value="discover" className="space-y-6">
-          <DiscoverView />
-        </TabsContent>
-
-        <TabsContent value="add" className="space-y-6">
-          <AddSchoolForm
-            onSuccess={() => {
-              setActiveTab("view");
-              refetch();
-            }}
+        {selected && (
+          <SchoolDrawer
+            school={selected.row}
+            status={selected.status}
+            stale={selected.stale}
+            crawling={crawlingId === selected.row.id || selected.status === "crawling"}
+            crawlDisabled={isCrawling}
+            onClose={() => setSelectedId(null)}
+            onCrawl={() => handleCrawl(selected.row.id, selected.row.domain)}
+            onDelete={() => setConfirmSchool(selected.row)}
           />
-        </TabsContent>
-      </Tabs>
+        )}
+
+        {confirmSchool && (
+          <ConfirmDialog
+            name={confirmSchool.canonicalName}
+            onCancel={() => setConfirmSchool(null)}
+            onConfirm={() =>
+              removeMutation.mutate({ schoolId: confirmSchool.id })
+            }
+          />
+        )}
+      </div>
     </div>
-  );
-}
-
-function AddSchoolForm({ onSuccess }: { onSuccess: () => void }) {
-  const [name, setName] = useState("");
-  const [website, setWebsite] = useState("");
-  const [phone, setPhone] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [country, setCountry] = useState("US");
-
-  const importMutation = trpc.seeds.import.useMutation({
-    onSuccess: (result) => {
-      toast.success(
-        result.isNew
-          ? `Successfully created school: ${name}`
-          : `Successfully linked to existing school: ${name}`
-      );
-      // Reset form
-      setName("");
-      setWebsite("");
-      setPhone("");
-      setCity("");
-      setState("");
-      setCountry("US");
-      onSuccess();
-    },
-    onError: (error) => {
-      toast.error(`Failed to add school: ${error.message}`);
-    },
-  });
-
-  const utils = trpc.useUtils();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!name.trim()) {
-      toast.error("School name is required");
-      return;
-    }
-
-    if (!website.trim()) {
-      toast.error("Website is required");
-      return;
-    }
-
-    if (!city.trim()) {
-      toast.error("City is required");
-      return;
-    }
-
-    const address = `${city}, ${state} ${country}`.trim();
-
-    // Try to geocode the address using tRPC
-    let lat = 0;
-    let lng = 0;
-    try {
-      const geocodeResult = await utils.seeds.geocode.fetch({ address });
-      if (geocodeResult) {
-        lat = geocodeResult.lat;
-        lng = geocodeResult.lng;
-      } else {
-        toast.warning("Could not geocode address, using default coordinates");
-      }
-    } catch (error) {
-      console.error("Geocoding error:", error);
-      toast.warning("Could not geocode address, using default coordinates");
-    }
-
-    // Create a minimal Google Places-like structure
-    importMutation.mutate({
-      name: name.trim(),
-      website: website.trim(),
-      phone: phone.trim() || undefined,
-      address,
-      lat,
-      lng,
-      addressComponents: [
-        { types: ["locality"], longText: city, shortText: city },
-        ...(state
-          ? [
-              {
-                types: ["administrative_area_level_1"],
-                longText: state,
-                shortText: state,
-              },
-            ]
-          : []),
-        { types: ["country"], longText: country, shortText: country },
-      ],
-    });
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Add School Manually</CardTitle>
-        <CardDescription>
-          Enter school information to add it to the system
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">School Name *</Label>
-            <Input
-              id="name"
-              placeholder="Example Flight School"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="website">Website *</Label>
-            <Input
-              id="website"
-              type="url"
-              placeholder="https://example.com"
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="phone">Phone</Label>
-            <Input
-              id="phone"
-              type="tel"
-              placeholder="(555) 123-4567"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="city">City *</Label>
-              <Input
-                id="city"
-                placeholder="Austin"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="state">State</Label>
-              <Input
-                id="state"
-                placeholder="TX"
-                value={state}
-                onChange={(e) => setState(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="country">Country</Label>
-              <Input
-                id="country"
-                placeholder="US"
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button type="submit" disabled={importMutation.isPending}>
-              {importMutation.isPending ? "Adding..." : "Add School"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setName("");
-                setWebsite("");
-                setPhone("");
-                setCity("");
-                setState("");
-                setCountry("US");
-              }}
-            >
-              Clear
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
   );
 }

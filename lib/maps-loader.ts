@@ -1,3 +1,4 @@
+/// <reference types="google.maps" />
 /**
  * Google Maps JavaScript API loader utility
  * Handles dynamic loading of the Google Maps script with proper TypeScript types
@@ -12,6 +13,22 @@ declare global {
 
 let loadPromise: Promise<void> | null = null;
 let isLoaded = false;
+
+/**
+ * Map ID required by google.maps.marker.AdvancedMarkerElement. Google's
+ * DEMO_MAP_ID gives default styling; set NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID to a
+ * map ID from the Cloud console (Maps Platform → Map management) to customize.
+ */
+export const GOOGLE_MAPS_MAP_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
+
+/** Everything this app constructs: Map plus the marker library. */
+function mapsReady(): boolean {
+  return !!(
+    window.google?.maps?.Map &&
+    window.google.maps.marker?.AdvancedMarkerElement
+  );
+}
 
 /**
  * Load Google Maps JavaScript API script
@@ -49,7 +66,7 @@ export function loadGoogleMaps(): Promise<void> {
 
     if (existingScript) {
       // Script exists, check if it's already loaded
-      if (window.google?.maps?.Map) {
+      if (mapsReady()) {
         isLoaded = true;
         resolve();
         return;
@@ -61,7 +78,7 @@ export function loadGoogleMaps(): Promise<void> {
       const maxAttempts = 50; // 5 seconds max
       const checkInterval = setInterval(() => {
         attempts++;
-        if (window.google?.maps?.Map) {
+        if (mapsReady()) {
           clearInterval(checkInterval);
           isLoaded = true;
           resolve();
@@ -72,7 +89,7 @@ export function loadGoogleMaps(): Promise<void> {
             let fallbackAttempts = 0;
             const fallbackInterval = setInterval(() => {
               fallbackAttempts++;
-              if (window.google?.maps?.Map) {
+              if (mapsReady()) {
                 clearInterval(fallbackInterval);
                 isLoaded = true;
                 resolve();
@@ -80,7 +97,7 @@ export function loadGoogleMaps(): Promise<void> {
                 clearInterval(fallbackInterval);
                 reject(
                   new Error(
-                    "Google Maps script loaded but Map constructor not available"
+                    "Google Maps script loaded but Map/marker libraries not available"
                   )
                 );
               }
@@ -98,7 +115,7 @@ export function loadGoogleMaps(): Promise<void> {
         let loadAttempts = 0;
         const loadCheckInterval = setInterval(() => {
           loadAttempts++;
-          if (window.google?.maps?.Map) {
+          if (mapsReady()) {
             clearInterval(loadCheckInterval);
             isLoaded = true;
             resolve();
@@ -106,7 +123,7 @@ export function loadGoogleMaps(): Promise<void> {
             clearInterval(loadCheckInterval);
             reject(
               new Error(
-                "Google Maps script loaded but Map constructor not available"
+                "Google Maps script loaded but Map/marker libraries not available"
               )
             );
           }
@@ -122,7 +139,7 @@ export function loadGoogleMaps(): Promise<void> {
     // Create and append script
     const script = document.createElement("script");
     // Use loading=async parameter to fix the warning
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker&loading=async`;
     script.async = true;
     script.defer = true;
 
@@ -132,7 +149,7 @@ export function loadGoogleMaps(): Promise<void> {
       const maxAttempts = 50; // 5 seconds max
       const checkInterval = setInterval(() => {
         attempts++;
-        if (window.google?.maps?.Map) {
+        if (mapsReady()) {
           clearInterval(checkInterval);
           isLoaded = true;
           resolve();
@@ -140,7 +157,7 @@ export function loadGoogleMaps(): Promise<void> {
           clearInterval(checkInterval);
           reject(
             new Error(
-              "Google Maps script loaded but Map constructor not available"
+              "Google Maps script loaded but Map/marker libraries not available"
             )
           );
         }

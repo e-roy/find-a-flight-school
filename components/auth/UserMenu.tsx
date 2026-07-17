@@ -61,13 +61,7 @@ export async function UserMenu() {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/admin/overview">Admin Console</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/schools">Admin: Schools</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/queue">Admin: Queue</Link>
+              <Link href="/admin/schools">Admin Console</Link>
             </DropdownMenuItem>
           </>
         )}

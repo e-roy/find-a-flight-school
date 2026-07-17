@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { Header } from "@/components/mk/Header";
+import { Footer } from "@/components/mk/Footer";
+import { UserMenu } from "@/components/auth/UserMenu";
 
 const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
@@ -28,6 +31,12 @@ export default function ClaimLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return (
+    <div className="mk-root">
+      <Header userMenu={<UserMenu />} />
+      <main>{children}</main>
+      <Footer />
+    </div>
+  );
 }
 

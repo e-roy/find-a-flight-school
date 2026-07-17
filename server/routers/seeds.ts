@@ -1,16 +1,22 @@
-import { router, protectedProcedure } from "@/lib/trpc/trpc";
+import { router, protectedProcedure, publicProcedure } from "@/lib/trpc/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { schools } from "@/db/schema/schools";
 import { sources } from "@/db/schema/sources";
-import { crawlQueue } from "@/db/schema/crawl_queue";
 import { facts } from "@/db/schema/facts";
-import { or, ilike, eq, and, isNotNull } from "drizzle-orm";
+import { or, ilike, eq, and, isNotNull, desc } from "drizzle-orm";
 import { hasRole } from "@/lib/rbac";
-import { search, fetchPlaceById } from "@/lib/discovery/google";
-import { checkDiscoverQuota, checkImportQuota } from "@/lib/quota";
+import { search, searchByQuery, fetchPlaceById } from "@/lib/discovery/google";
+import { meterPlacesUsage, consumePlacesBudgetOrThrow } from "@/lib/places-budget";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { verifyTurnstileOrThrow } from "@/lib/turnstile";
+import { deleteSchoolCascade } from "@/lib/remove-school";
 import { normalizeGooglePlaces } from "@/lib/normalize-google-places";
-import { FACT_KEYS } from "@/types";
+import {
+  refreshSchoolPlaces,
+  refreshStalePhotosBatch,
+  RefreshError,
+} from "@/lib/refresh-school-places";
 
 /**
  * Middleware to check if user has admin role
@@ -129,8 +135,9 @@ async function createSchoolFromGooglePlaces(
     streetAddress: string | null;
     postalCode: string | null;
   },
-  collectedAt: Date
-): Promise<{ schoolId: string; queueId: string | null; isNew: boolean }> {
+  collectedAt: Date,
+  addedVia: string | null = null
+): Promise<{ schoolId: string; isNew: boolean }> {
   // Normalize domain from website
   const normalizeDomain = (
     website: string | undefined | null
@@ -159,7 +166,6 @@ async function createSchoolFromGooglePlaces(
 
   // Check for existing school by domain (dedupe check)
   let schoolId: string;
-  let queueId: string | null = null;
   let isNew = false;
 
   if (domain) {
@@ -194,8 +200,8 @@ async function createSchoolFromGooglePlaces(
         collectedAt,
       });
 
-      // Return early - no facts or crawl enqueue for existing schools
-      return { schoolId, queueId: null, isNew: false };
+      // Return early - no facts for existing schools
+      return { schoolId, isNew: false };
     } else {
       // Create new school
       isNew = true;
@@ -217,6 +223,7 @@ async function createSchoolFromGooglePlaces(
         lat: input.location?.lat || null,
         lng: input.location?.lng || null,
         googlePlaceId: input.placeId || null,
+        addedVia,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -235,31 +242,10 @@ async function createSchoolFromGooglePlaces(
         collectedAt,
       });
 
-      // Enqueue crawl (check for existing pending job first)
-      const existingJob = await db
-        .select()
-        .from(crawlQueue)
-        .where(
-          and(
-            eq(crawlQueue.schoolId, schoolId),
-            eq(crawlQueue.status, "pending")
-          )
-        )
-        .limit(1);
-
-      if (existingJob.length === 0 && domain) {
-        queueId = crypto.randomUUID();
-        await db.insert(crawlQueue).values({
-          id: queueId,
-          schoolId,
-          domain,
-          status: "pending",
-          attempts: 0,
-          scheduledAt: new Date(),
-        });
-      } else if (existingJob.length > 0) {
-        queueId = existingJob[0].id;
-      }
+      // No crawl enqueue: the pipeline is synchronous and admin-triggered, so a
+      // "pending" row here would never be processed and the admin UI would show
+      // the school as stuck "Crawling". New schools stay "Discovered" until an
+      // admin (or verified owner) runs the crawl.
     }
   } else {
     // No domain, create school anyway (may not have website)
@@ -282,6 +268,7 @@ async function createSchoolFromGooglePlaces(
       lat: input.location?.lat || null,
       lng: input.location?.lng || null,
       googlePlaceId: input.placeId || null,
+      addedVia,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -330,7 +317,7 @@ async function createSchoolFromGooglePlaces(
     await db.insert(facts).values(factsToInsert);
   }
 
-  return { schoolId, queueId, isNew };
+  return { schoolId, isNew };
 }
 
 /**
@@ -424,6 +411,7 @@ export const seedsRouter = router({
       }
 
       try {
+        await meterPlacesUsage();
         const url = new URL(
           "https://maps.googleapis.com/maps/api/geocode/json"
         );
@@ -453,18 +441,10 @@ export const seedsRouter = router({
         query: z.string().optional(),
       })
     )
-    .query(async ({ ctx, input }) => {
-      // Check quota
-      const userId = ctx.session?.user?.id || "";
-      const quotaCheck = await checkDiscoverQuota(userId, 10);
-      if (!quotaCheck.allowed) {
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message: quotaCheck.error || "Discover quota exceeded",
-        });
-      }
-
+    .query(async ({ input }) => {
       try {
+        // Geocode + Places search count toward the monthly budget meter.
+        await meterPlacesUsage(2);
         const result = await search({
           city: input.city,
           radiusKm: input.radiusKm,
@@ -644,16 +624,8 @@ export const seedsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Check quota
-      const userId = ctx.session?.user?.id || "";
-      const quotaCheck = await checkImportQuota(userId, 50);
-      if (!quotaCheck.allowed) {
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message: quotaCheck.error || "Import quota exceeded",
-        });
-      }
-
+      // import() makes no Google calls (it persists the discover payload), so no
+      // budget metering is needed here.
       // Extract city/state/country/street/postal from address using Google's structured addressComponents
       const addressData = parseAddressFromComponents(input.addressComponents);
       const now = new Date();
@@ -686,160 +658,232 @@ export const seedsRouter = router({
       return {
         ok: true,
         schoolId: result.schoolId,
-        queueId: result.queueId || undefined,
         isNew: result.isNew,
       };
     }),
   refreshGooglePlaces: isAdmin
     .input(z.object({ schoolId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      // Fetch school from DB
-      const school = await ctx.db.query.schools.findFirst({
-        where: (q, { eq }) => eq(q.id, input.schoolId),
-      });
-
-      if (!school) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "School not found",
-        });
-      }
-
-      // Get googlePlaceId from school record or from latest fact
-      let googlePlaceId = school.googlePlaceId;
-
-      if (!googlePlaceId) {
-        // Try to get from facts
-        const placeIdFact = await ctx.db.query.facts.findFirst({
-          where: (q, { and, eq }) =>
-            and(
-              eq(q.schoolId, input.schoolId),
-              eq(q.factKey, FACT_KEYS.GOOGLE_PLACE_ID)
-            ),
-          orderBy: (facts, { desc }) => [desc(facts.asOf)],
-        });
-
-        if (placeIdFact && typeof placeIdFact.factValue === "string") {
-          googlePlaceId = placeIdFact.factValue;
+    .mutation(async ({ input }) => {
+      try {
+        const result = await refreshSchoolPlaces(input.schoolId);
+        return { ok: true, schoolId: result.schoolId, updatedAt: result.updatedAt };
+      } catch (error) {
+        if (error instanceof RefreshError) {
+          throw new TRPCError({
+            code:
+              error.reason === "NO_PLACE_ID" ? "BAD_REQUEST" : "NOT_FOUND",
+            message: error.message,
+          });
         }
+        throw error;
       }
+    }),
 
-      if (!googlePlaceId) {
+  /**
+   * Admin: on-demand budget-capped refresh of stale/broken school photos.
+   * Same logic the daily cron runs.
+   */
+  refreshStalePhotos: isAdmin
+    .input(z.object({ batch: z.number().min(1).max(200).optional() }).optional())
+    .mutation(async ({ input }) => {
+      return refreshStalePhotosBatch(input?.batch);
+    }),
+
+  /**
+   * Public: search Google Places for a school to add. Gated by Turnstile +
+   * per-IP rate limit + the fail-closed monthly Places budget.
+   */
+  publicDiscover: publicProcedure
+    .input(
+      z.object({
+        // A name, a location, or both — e.g. "Sunrise Aviation" or "Houston TX".
+        q: z.string().min(1).max(160),
+        turnstileToken: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await verifyTurnstileOrThrow(input.turnstileToken, ctx.ip);
+      await enforceRateLimit(ctx.ip, {
+        limit: 8,
+        windowSec: 60,
+        name: "public-discover",
+      });
+      // Single Text Search = 1 billable call; fail closed if over budget.
+      await consumePlacesBudgetOrThrow(1);
+
+      const q = input.q.trim();
+      // Steer results toward flight schools unless the user already said so.
+      const textQuery = /flight\s*school/i.test(q) ? q : `${q} flight school`;
+      try {
+        const candidates = await searchByQuery(textQuery);
+        return candidates
+          .filter((c) => c.placeId && c.lat && c.lng)
+          .map((c) => ({
+            placeId: c.placeId as string,
+            name: c.name,
+            address: c.address,
+            website: c.website,
+            phone: c.phone,
+            rating: c.rating,
+            ratingCount: c.userRatingCount,
+            lat: c.lat,
+            lng: c.lng,
+          }));
+      } catch (error) {
         throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "School does not have a Google Place ID",
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not search for schools right now.",
         });
       }
+    }),
 
-      // Fetch fresh data from Google Places
-      const candidate = await fetchPlaceById(googlePlaceId);
+  /**
+   * Public: add the chosen school. Re-fetches the place server-side (never
+   * trusts client-supplied data) and publishes immediately, tagged addedVia
+   * "public" for admin moderation. Gated like publicDiscover.
+   */
+  publicSubmit: publicProcedure
+    .input(
+      z.object({
+        placeId: z.string().min(1),
+        turnstileToken: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await verifyTurnstileOrThrow(input.turnstileToken, ctx.ip);
+      await enforceRateLimit(ctx.ip, {
+        limit: 5,
+        windowSec: 300,
+        name: "public-submit",
+      });
+      // One billable Place Details call to fetch trustworthy data.
+      await consumePlacesBudgetOrThrow(1);
 
+      const candidate = await fetchPlaceById(input.placeId);
       if (!candidate) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Place not found in Google Places",
+          message: "That place could not be found on Google.",
         });
       }
 
-      // Update school record
-      await ctx.db
-        .update(schools)
-        .set({
-          lat: candidate.lat || null,
-          lng: candidate.lng || null,
-          googlePlaceId: candidate.placeId || null,
-          phone: candidate.phone || school.phone || null,
-          updatedAt: new Date(),
-        })
-        .where(eq(schools.id, input.schoolId));
-
-      // Before creating new facts, check if there's a valid airport code from scraped data
-      // This serves as a fallback if Google Places doesn't have the airport code
-      const latestSnapshot = await ctx.db.query.snapshots.findFirst({
-        where: (q, { eq }) => eq(q.schoolId, input.schoolId),
-        orderBy: (snapshots, { desc }) => [desc(snapshots.asOf)],
-      });
-
-      let scrapedAirportCode: string | null = null;
-      if (latestSnapshot?.rawJson) {
-        const rawJson = latestSnapshot.rawJson as Record<string, unknown>;
-        // Check locations array
-        if (Array.isArray(rawJson.locations) && rawJson.locations.length > 0) {
-          const firstLocation = rawJson.locations[0] as Record<string, unknown>;
-          if (
-            typeof firstLocation.airportCode === "string" &&
-            firstLocation.airportCode !== "USA"
-          ) {
-            scrapedAirportCode = firstLocation.airportCode;
-          }
-        }
-        // Check location string
-        if (!scrapedAirportCode && typeof rawJson.location === "string") {
-          const locationMatch = rawJson.location.match(/\b(K?[A-Z]{3,4})\b/);
-          if (locationMatch && locationMatch[1] && locationMatch[1] !== "USA") {
-            scrapedAirportCode = locationMatch[1];
-          }
-        }
-      }
-
-      // Create new facts with fresh data
-      const now = new Date();
-      const refreshFacts = normalizeGooglePlaces({
-        rating: candidate.rating ?? null,
-        userRatingCount: candidate.userRatingCount ?? null,
-        businessStatus: candidate.businessStatus || null,
-        priceLevel: candidate.priceLevel || null,
-        photos: candidate.photos || null,
-        regularOpeningHours: candidate.regularOpeningHours || null,
-        phone: candidate.phone || null,
-        formattedAddress: candidate.address || null,
-        addressComponents: candidate.addressComponents || null,
-        location: { lat: candidate.lat, lng: candidate.lng },
-        types: candidate.types || null,
-        primaryType: candidate.primaryType || null,
-        displayName: candidate.name || null,
-        placeId: candidate.placeId || null,
-      });
-
-      // If Google Places didn't extract an airport code, but we have one from scraped data, use it
-      const hasAirportCodeFact = refreshFacts.some(
-        (f) => f.factKey === FACT_KEYS.LOCATION_AIRPORT_CODE
+      const addressData = parseAddressFromComponents(
+        candidate.addressComponents
       );
-      if (!hasAirportCodeFact && scrapedAirportCode) {
-        refreshFacts.push({
-          factKey: FACT_KEYS.LOCATION_AIRPORT_CODE,
-          factValue: scrapedAirportCode,
-        });
-      }
-
-      // Before inserting new facts, delete any existing "USA" airport code facts
-      // This cleans up invalid airport codes from previous extractions
-      await ctx.db
-        .delete(facts)
-        .where(
-          and(
-            eq(facts.schoolId, input.schoolId),
-            eq(facts.factKey, FACT_KEYS.LOCATION_AIRPORT_CODE),
-            eq(facts.factValue, "USA")
-          )
-        );
-
-      if (refreshFacts.length > 0) {
-        const factsToInsert = refreshFacts.map((fact) => ({
-          schoolId: input.schoolId,
-          factKey: fact.factKey,
-          factValue: fact.factValue,
-          provenance: "PLACES" as const,
-          asOf: now,
-        }));
-
-        await ctx.db.insert(facts).values(factsToInsert);
-      }
+      const result = await createSchoolFromGooglePlaces(
+        ctx.db,
+        {
+          name: candidate.name,
+          website: candidate.website,
+          phone: candidate.phone,
+          placeId: candidate.placeId,
+          rating: candidate.rating,
+          userRatingCount: candidate.userRatingCount,
+          businessStatus: candidate.businessStatus,
+          priceLevel: candidate.priceLevel,
+          photos: candidate.photos,
+          regularOpeningHours: candidate.regularOpeningHours,
+          currentOpeningHours: candidate.currentOpeningHours,
+          formattedAddress: candidate.address || null,
+          addressComponents: candidate.addressComponents || null,
+          location: { lat: candidate.lat, lng: candidate.lng },
+          types: candidate.types || null,
+          primaryType: candidate.primaryType || null,
+        },
+        addressData,
+        new Date(),
+        "public"
+      );
 
       return {
         ok: true,
-        schoolId: input.schoolId,
-        updatedAt: now,
+        schoolId: result.schoolId,
+        isNew: result.isNew,
       };
+    }),
+
+  /**
+   * Public: check whether a Google Places result is already in the directory,
+   * using the same dedup rule as submission (normalized domain, then placeId).
+   * Lets the add-school finder offer "Visit school" instead of "Add this school".
+   */
+  publicExists: publicProcedure
+    .input(
+      z.object({
+        placeId: z.string().optional(),
+        website: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const normalizeDomain = (website: string | undefined): string | null => {
+        if (!website) return null;
+        try {
+          if (!website.includes("://")) {
+            return (
+              website.replace(/^www\./i, "").replace(/\/+$/, "").toLowerCase() ||
+              null
+            );
+          }
+          return new URL(website).hostname.replace(/^www\./i, "").toLowerCase() || null;
+        } catch {
+          const match = website.match(
+            /(?:https?:\/\/)?(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})/i
+          );
+          return match?.[1]?.toLowerCase() || null;
+        }
+      };
+
+      const domain = normalizeDomain(input.website);
+      if (domain) {
+        const byDomain = await ctx.db
+          .select({ id: schools.id })
+          .from(schools)
+          .where(eq(schools.domain, domain))
+          .limit(1);
+        if (byDomain.length > 0) {
+          return { exists: true, schoolId: byDomain[0].id };
+        }
+      }
+      if (input.placeId) {
+        const byPlace = await ctx.db
+          .select({ id: schools.id })
+          .from(schools)
+          .where(eq(schools.googlePlaceId, input.placeId))
+          .limit(1);
+        if (byPlace.length > 0) {
+          return { exists: true, schoolId: byPlace[0].id };
+        }
+      }
+      return { exists: false, schoolId: null as string | null };
+    }),
+
+  /** Admin: schools added through the public flow, newest first. */
+  listPublicAdditions: isAdmin
+    .input(
+      z.object({ limit: z.number().min(1).max(200).default(50) }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db
+        .select({
+          id: schools.id,
+          name: schools.canonicalName,
+          domain: schools.domain,
+          createdAt: schools.createdAt,
+        })
+        .from(schools)
+        .where(eq(schools.addedVia, "public"))
+        .orderBy(desc(schools.createdAt))
+        .limit(input?.limit ?? 50);
+    }),
+
+  /** Admin: hard-remove a school and all of its dependent rows. */
+  removeSchool: isAdmin
+    .input(z.object({ schoolId: z.string() }))
+    .mutation(async ({ input }) => {
+      await deleteSchoolCascade(input.schoolId);
+      return { ok: true };
     }),
 });

@@ -20,6 +20,8 @@ export const schools = pgTable(
     lat: real("lat"),
     lng: real("lng"),
     googlePlaceId: text("google_place_id"),
+    // null = admin/seed import; "public" = added via the public add-a-school flow.
+    addedVia: text("added_via"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
